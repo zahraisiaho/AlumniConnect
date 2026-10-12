@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy: #0b1f3a;
+  --color-navy-soft: #17345c;
+  --color-ice: #eaf3fb;
+  --color-ice-deep: #cfe2f3;
+  --color-gold: #f5a623;
+  --color-muted: #5b6b80;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+body { font-family: var(--font-sans); background: var(--color-ice); color: var(--color-navy); }
+h1, h2, h3 { font-family: var(--font-display); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

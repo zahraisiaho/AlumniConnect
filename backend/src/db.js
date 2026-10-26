@@ -1,0 +1,5 @@
+import 'dotenv/config'
+import pg from 'pg'
+
+export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL })
+export const q = (text, params) => pool.query(text, params).then((r) => r.rows)

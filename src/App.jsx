@@ -10,6 +10,8 @@ import Forum from './pages/Forum'
 import Updates from './pages/Updates'
 import Profile from './pages/Profile'
 import Admin from './pages/Admin'
+import Rate from './pages/Rate'
+import Mentorships from './pages/Mentorships'
 
 function Guard({ children }) {
   const { signedIn, needsProfile, ready, error } = useAuth()
@@ -31,10 +33,12 @@ export default function App() {
           <Route element={<Guard><Layout /></Guard>}>
             <Route path="/directory" element={<Directory />} />
             <Route path="/mentorship" element={<Mentorship />} />
+            <Route path="/mentorships" element={<Mentorships />} />
             <Route path="/forum" element={<Forum />} />
             <Route path="/updates" element={<Updates />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/rate" element={<Rate />} />
           </Route>
           <Route path="*" element={<Navigate to="/directory" replace />} />
         </Routes>

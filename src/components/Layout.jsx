@@ -1,14 +1,29 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { api } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Avatar } from './ui'
 
-const nav = [['/directory', 'Directory'], ['/mentorship', 'Mentorship'], ['/forum', 'Forum'], ['/updates', 'Updates'], ['/profile', 'My profile']]
+const nav = [['/directory', 'Directory'], ['/mentorship', 'Mentorship'], ['/mentorships', 'My mentorships'], ['/forum', 'Forum'], ['/updates', 'Updates'], ['/profile', 'My profile']]
 
 export default function Layout() {
   const { user, logout } = useAuth()
   const go = useNavigate()
   const out = async () => { await logout(); go('/login') }
-  const items = user.role === 'admin' ? [['/directory', 'Directory'], ['/forum', 'Forum'], ['/updates', 'Updates'], ['/admin', 'Admin'], ['/profile', 'My profile']] : nav
+  const { pathname } = useLocation()
+  // Unread items (accepted requests, messages, session proposals), shown as a badge on My mentorships.
+  const [unread, setUnread] = useState(0)
+  useEffect(() => {
+    if (user.role === 'admin') return undefined
+    const load = () => { if (!document.hidden) api.notifications().then((n) => setUnread(n.mentorships)).catch(() => {}) }
+    load()
+    const t = setInterval(load, 15000)
+    window.addEventListener('mentorships:read', load)   // sent by My mentorships after opening one
+    return () => { clearInterval(t); window.removeEventListener('mentorships:read', load) }
+  }, [user.role, pathname])
+  const badges = { '/mentorships': unread }
+  const label = (to, l) => (badges[to] ? <>{l} <span className="ml-1 rounded-full bg-gold px-1.5 text-xs font-semibold text-navy" aria-label={`${badges[to]} unread`}>{badges[to]}</span></> : l)
+  const items = user.role === 'admin' ? [['/directory', 'Directory'], ['/forum', 'Forum'], ['/updates', 'Updates'], ['/admin', 'Admin'], ['/profile', 'My profile']] : user.role === 'student' ? [...nav, ['/rate', 'Improve matching']] : nav
   const side = ({ isActive }) => `block border-l-4 px-4 py-2 text-sm font-medium ${isActive ? 'border-gold bg-navy-soft text-white' : 'border-transparent text-ice-deep hover:text-white'}`
   const top = ({ isActive }) => `whitespace-nowrap border-b-4 px-3 py-2 text-sm ${isActive ? 'border-gold text-white' : 'border-transparent text-ice-deep'}`
 
@@ -16,7 +31,7 @@ export default function Layout() {
     <div className="min-h-screen md:flex">
       <aside className="hidden w-60 shrink-0 flex-col bg-navy py-6 md:flex">
         <div className="px-4 pb-6 font-display text-2xl text-white">AlumniConnect</div>
-        <nav className="flex-1">{items.map(([to, l]) => <NavLink key={to} to={to} className={side}>{l}</NavLink>)}</nav>
+        <nav className="flex-1">{items.map(([to, l]) => <NavLink key={to} to={to} className={side}>{label(to, l)}</NavLink>)}</nav>
         <div className="px-4 pt-4 text-ice-deep">
           <div className="flex items-center gap-2">
             <Avatar name={user.name} size={32} />
@@ -34,7 +49,7 @@ export default function Layout() {
           <button onClick={out} className="text-xs text-ice-deep underline">Sign out</button>
         </header>
         <nav className="flex overflow-x-auto bg-navy-soft px-2 md:hidden">
-          {items.map(([to, l]) => <NavLink key={to} to={to} className={top}>{l}</NavLink>)}
+          {items.map(([to, l]) => <NavLink key={to} to={to} className={top}>{label(to, l)}</NavLink>)}
         </nav>
         <main className="mx-auto max-w-4xl p-4 md:p-8"><Outlet /></main>
       </div>

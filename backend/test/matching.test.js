@@ -1,7 +1,7 @@
 // Unit tests for the rule-based matching function (no database needed).
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { scoreMatch } from '../src/matching.js'
+import { SEMANTIC_BONUS, scoreMatch, semanticBonus, semanticOn } from '../src/matching.js'
 
 const amina = { university: 'Strathmore University', fieldOfStudy: 'Computer Science', industry: 'Technology', availability: 'Weekday evenings',
   skills: ['Python', 'React', 'SQL'], interests: ['Career guidance', 'Internships abroad', 'Technical skills'] }
@@ -31,4 +31,15 @@ test('A perfect match scores exactly 100', () => {
 })
 test('Missing student attributes never cause an error', () => {
   assert.equal(scoreMatch({}, mentor({ fieldOfStudy: 'Law' })).score, 0)
+})
+
+test('text-meaning bonus: nothing at or below 0.2 similarity, full 15 points from 0.8, rounded in between', () => {
+  assert.deepEqual([0, 0.2, 0.5, 0.68, 0.8, 1].map((s) => semanticBonus(s)), [0, 0, 8, 12, 15, 15])
+  assert.equal(semanticBonus(undefined), 0); assert.equal(semanticBonus(NaN), 0)
+  assert.deepEqual(SEMANTIC_BONUS, { maxBonus: 15, floor: 0.2, span: 0.6 })
+})
+
+test('MATCH_SEMANTIC is on by default and only "off" turns it off', () => {
+  assert.equal(semanticOn({}), true); assert.equal(semanticOn({ MATCH_SEMANTIC: 'on' }), true)
+  assert.equal(semanticOn({ MATCH_SEMANTIC: 'off' }), false); assert.equal(semanticOn({ MATCH_SEMANTIC: ' OFF ' }), false)
 })

@@ -1,0 +1,329 @@
+{
+ "note": "Synthetic demo data. Used only to test that Node and scikit-learn give the same probabilities.",
+ "model": {
+  "type": "logistic",
+  "features": [
+   "field_match",
+   "skills_shared",
+   "interests_shared",
+   "industry_match",
+   "availability_match",
+   "same_university",
+   "semantic_sim"
+  ],
+  "intercept": -1.6492249632522558,
+  "coefficients": {
+   "field_match": 1.7624219392927039,
+   "skills_shared": 1.1374581021975443,
+   "interests_shared": 0.9552746088989842,
+   "industry_match": 0.33039286210214475,
+   "availability_match": 0.18847929268153302,
+   "same_university": -0.2874267285005585,
+   "semantic_sim": 1.6387457872726812
+  }
+ },
+ "rows": [
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.0,
+    "interests_shared": 0.0,
+    "industry_match": 1.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.13231877075729725
+   }
+  },
+  {
+   "features": {
+    "field_match": 1.0,
+    "skills_shared": 0.0,
+    "interests_shared": 0.0,
+    "industry_match": 0.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.7497881992483952
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 1.0,
+    "interests_shared": 0.0,
+    "industry_match": 1.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.63415320695885
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.3333333333333333,
+    "interests_shared": 1.0,
+    "industry_match": 0.0,
+    "availability_match": 1.0,
+    "same_university": 1.0,
+    "semantic_sim": 0.0681625755456813
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.0,
+    "interests_shared": 0.3333333333333333,
+    "industry_match": 0.0,
+    "availability_match": 1.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.5945228991408601
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.0,
+    "interests_shared": 1.0,
+    "industry_match": 0.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.2822154946063408
+   }
+  },
+  {
+   "features": {
+    "field_match": 1.0,
+    "skills_shared": 0.3333333333333333,
+    "interests_shared": 0.3333333333333333,
+    "industry_match": 0.0,
+    "availability_match": 1.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.4064643149067181
+   }
+  },
+  {
+   "features": {
+    "field_match": 1.0,
+    "skills_shared": 0.3333333333333333,
+    "interests_shared": 0.3333333333333333,
+    "industry_match": 1.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.4317374553964967
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.0,
+    "interests_shared": 0.0,
+    "industry_match": 0.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.3352045921176142
+   }
+  },
+  {
+   "features": {
+    "field_match": 1.0,
+    "skills_shared": 0.0,
+    "interests_shared": 0.3333333333333333,
+    "industry_match": 1.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.44225244767538197
+   }
+  },
+  {
+   "features": {
+    "field_match": 1.0,
+    "skills_shared": 0.0,
+    "interests_shared": 0.3333333333333333,
+    "industry_match": 0.0,
+    "availability_match": 0.0,
+    "same_university": 1.0,
+    "semantic_sim": 0.8228593059303138
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.3333333333333333,
+    "interests_shared": 0.6666666666666666,
+    "industry_match": 1.0,
+    "availability_match": 1.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.28731507388831784
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.6666666666666666,
+    "interests_shared": 0.3333333333333333,
+    "industry_match": 1.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.37223099205785143
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.0,
+    "interests_shared": 0.0,
+    "industry_match": 0.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.2922821551542715
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.0,
+    "interests_shared": 0.0,
+    "industry_match": 0.0,
+    "availability_match": 1.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.21048947579775804
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.0,
+    "interests_shared": 0.6666666666666666,
+    "industry_match": 1.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.17708554631358103
+   }
+  },
+  {
+   "features": {
+    "field_match": 1.0,
+    "skills_shared": 0.3333333333333333,
+    "interests_shared": 0.3333333333333333,
+    "industry_match": 0.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.6474707950403247
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 1.0,
+    "interests_shared": 1.0,
+    "industry_match": 0.0,
+    "availability_match": 1.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.23276378092601538
+   }
+  },
+  {
+   "features": {
+    "field_match": 1.0,
+    "skills_shared": 0.3333333333333333,
+    "interests_shared": 0.6666666666666666,
+    "industry_match": 0.0,
+    "availability_match": 1.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.5854898450974566
+   }
+  },
+  {
+   "features": {
+    "field_match": 1.0,
+    "skills_shared": 0.3333333333333333,
+    "interests_shared": 0.0,
+    "industry_match": 0.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.5537558116960148
+   }
+  },
+  {
+   "features": {
+    "field_match": 1.0,
+    "skills_shared": 0.3333333333333333,
+    "interests_shared": 0.3333333333333333,
+    "industry_match": 0.0,
+    "availability_match": 1.0,
+    "same_university": 0.0,
+    "semantic_sim": 1.0
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.0,
+    "interests_shared": 0.0,
+    "industry_match": 1.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.16612806393994836
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.6666666666666666,
+    "interests_shared": 0.3333333333333333,
+    "industry_match": 0.0,
+    "availability_match": 1.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.11981621367749253
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.3333333333333333,
+    "interests_shared": 0.0,
+    "industry_match": 0.0,
+    "availability_match": 0.0,
+    "same_university": 1.0,
+    "semantic_sim": 0.07875673134793212
+   }
+  },
+  {
+   "features": {
+    "field_match": 0.0,
+    "skills_shared": 0.3333333333333333,
+    "interests_shared": 0.6666666666666666,
+    "industry_match": 0.0,
+    "availability_match": 0.0,
+    "same_university": 0.0,
+    "semantic_sim": 0.25344687096376245
+   }
+  }
+ ],
+ "expected": [
+  0.2493662270542279,
+  0.7928037381065276,
+  0.7022095677565356,
+  0.42505789736579763,
+  0.4580863657409589,
+  0.4423892712671797,
+  0.8409542714709123,
+  0.8639714982610152,
+  0.2497567861721637,
+  0.8155905723109342,
+  0.8164760403366211,
+  0.5881895280198141,
+  0.5909490636843782,
+  0.23681001313493916,
+  0.2467898832583573,
+  0.40328787225189494,
+  0.8666681003878267,
+  0.7336904207930421,
+  0.9069666564985664,
+  0.802154479484864,
+  0.9332674905142174,
+  0.2598803679473887,
+  0.453220442310981,
+  0.19334237678067462,
+  0.44574260327275494
+ ]
+}

@@ -39,5 +39,14 @@ DO $$ BEGIN
     INSERT INTO users (email,clerk_user_id,name,role,university_id) VALUES ('clerk2@x.com','user_abc','Clerk Two','student',1);
     RAISE NOTICE 'FAIL IT-12 same Clerk account linked to two profiles';
   EXCEPTION WHEN unique_violation THEN RAISE NOTICE 'PASS IT-12 same Clerk account cannot be linked to two profiles'; END;
+  -- Tester ratings
+  BEGIN
+    INSERT INTO match_feedback (student_id,mentor_id,helpful) SELECT s.id,m.id,TRUE FROM users s,users m WHERE s.email='student@demo.com' AND m.email='alumni@demo.com';
+    INSERT INTO match_feedback (student_id,mentor_id,helpful) SELECT s.id,m.id,FALSE FROM users s,users m WHERE s.email='student@demo.com' AND m.email='alumni@demo.com';
+    RAISE NOTICE 'FAIL IT-13 second rating for the same pair accepted';
+  EXCEPTION WHEN unique_violation THEN RAISE NOTICE 'PASS IT-13 one rating per student-mentor pair'; END;
+  BEGIN INSERT INTO match_feedback (student_id,mentor_id,helpful) SELECT id,id,TRUE FROM users WHERE email='student@demo.com';
+        RAISE NOTICE 'FAIL IT-14 self rating accepted';
+  EXCEPTION WHEN check_violation THEN RAISE NOTICE 'PASS IT-14 rating yourself rejected'; END;
 END $$;
 ROLLBACK;

@@ -20,7 +20,8 @@ export default function Admin() {
 
   if (user.role !== 'admin') return <Navigate to="/directory" replace />
 
-  const stats = s ? [['Students', s.students], ['Alumni', s.alumni], ['Mentors', s.mentors], ['Universities', s.universities], ['Forum posts', s.posts], ['Mentorship requests', s.requests], ['Pending requests', s.pending], ['Updates', s.updates]] : []
+  const stats = s ? [['Students', s.students], ['Alumni', s.alumni], ['Mentors', s.mentors], ['Universities', s.universities], ['Forum posts', s.posts], ['Mentorship requests', s.requests], ['Pending requests', s.pending], ['Updates', s.updates],
+    ['Active mentorships', s.activeMentorships], ['Sessions', s.sessions], ['Reviews', s.reviews], ['Average rating', s.averageRating ?? 'None yet']] : []   // counts only, never message text
   const shown = users.filter((u) => (!f.role || u.role === f.role) && (!f.q || `${u.name} ${u.email} ${u.university || ''}`.toLowerCase().includes(f.q.toLowerCase())))
 
   const save = async (e) => {
@@ -30,6 +31,14 @@ export default function Admin() {
       await api.adminUpdateUser(edit.id, patch)
       setMsg(`Saved changes for ${edit.name}.`); setEdit(null); await load()
     } catch (x) { setErr(x.message) } finally { setBusy(false) }
+  }
+  const exportCsv = async () => {
+    setErr(''); setMsg('')
+    try {
+      const url = URL.createObjectURL(await api.adminExportFeedback())
+      const a = document.createElement('a'); a.href = url; a.download = 'alumniconnect_feedback.csv'; a.click(); URL.revokeObjectURL(url)
+      setMsg('Exported the training data. It contains ids and numbers only.')
+    } catch (x) { setErr(x.message) }
   }
   const remove = async (u) => {
     if (!window.confirm(`Delete ${u.name} (${u.email})?\n\nThis removes their profile, mentorship requests and forum posts, and their sign-in account. It cannot be undone.`)) return
@@ -47,6 +56,12 @@ export default function Admin() {
         {stats.map(([label, value]) => (
           <Row key={label}><div className="text-2xl font-bold">{value}</div><div className="text-sm text-muted">{label}</div></Row>
         ))}
+      </div>
+
+      <div className="mb-8 border-l-4 border-gold bg-white p-4">
+        <h2 className="text-xl font-bold">Matching model</h2>
+        <p className="mb-3 mt-1 text-sm text-muted">Students rate mentors on the Improve matching page. Export the ratings as a CSV (ids and numbers only) and train the model in the Colab notebook.</p>
+        <button className={btn} onClick={exportCsv}>Export training data (CSV)</button>
       </div>
 
       {edit && (

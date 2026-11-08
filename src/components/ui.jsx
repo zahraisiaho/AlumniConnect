@@ -12,6 +12,9 @@ export function Avatar({ name = '?', size = 40 }) {
   )
 }
 
+// Marks an answer that was filled in from the person's CV and still needs checking.
+export const Suggested = () => <span className="ml-2 rounded bg-gold/25 px-1.5 py-0.5 text-xs font-normal text-navy">Suggested from your CV, please check</span>
+
 export function Field({ label, children }) {
   return (
     <label className="block">
@@ -40,9 +43,10 @@ export function Tag({ children }) {
 
 export function Chips({ options, value = [], onChange }) {
   const toggle = (o) => onChange(value.includes(o) ? value.filter((x) => x !== o) : [...value, o])
+  const shown = [...options, ...value.filter((x) => !options.includes(x))]   // selected values that are not in the list, e.g. typed-in skills
   return (
     <div className="flex flex-wrap gap-2">
-      {options.map((o) => (
+      {shown.map((o) => (
         <button type="button" key={o} onClick={() => toggle(o)} aria-pressed={value.includes(o)}
           className={`rounded-full border px-3 py-1 text-xs ${value.includes(o) ? 'border-navy bg-navy text-white' : 'border-ice-deep bg-white hover:border-navy'}`}>
           {o}

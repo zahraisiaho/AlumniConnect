@@ -9,6 +9,7 @@ export default function Mentorship() {
   const [matches, setMatches] = useState([])
   const [incoming, setIncoming] = useState([])
   const [sent, setSent] = useState({})
+  const [note, setNote] = useState(null)   // result of the last accept or decline
   const isStudent = user.role === 'student'
 
   const load = () => {
@@ -19,12 +20,22 @@ export default function Mentorship() {
   }
   useEffect(load, [user.id]) // eslint-disable-line
   const ask = async (id) => { await api.requestMentor(user.id, id); load() }
-  const answer = async (id, s) => { await api.respond(id, s); load() }
+  const answer = async (id, s) => {
+    setNote(null)
+    try {
+      const r = await api.respond(id, s)
+      if (r.mentorshipId) setNote({ ok: true, id: r.mentorshipId })
+    } catch (e) { setNote({ ok: false, text: e.message }) }   // e.g. already 5 active mentees
+    load()
+  }
 
   if (!isStudent) {
     return (
       <>
         <PageTitle title="Mentorship requests" sub="Students who asked you for guidance." />
+        {note && (note.ok
+          ? <p role="status" className="mb-4 border-l-4 border-navy bg-white p-3 text-sm">Accepted. <Link to={`/mentorships?id=${note.id}`} className="font-semibold underline">Open the mentorship</Link> to say hello and plan a session.</p>
+          : <p role="alert" className="mb-4 border-l-4 border-gold bg-white p-3 text-sm">{note.text}</p>)}
         <div className="space-y-2">
           {incoming.map((r) => (
             <Row key={r.id}>
@@ -49,12 +60,12 @@ export default function Mentorship() {
       {!user.fieldOfStudy || !user.skills?.length || !user.interests?.length
         ? <p className="mb-4 border-l-4 border-gold bg-white p-3 text-sm">Add your field, skills and interests in <Link to="/profile" className="font-semibold underline">My profile</Link> for better matches.</p> : null}
       <div className="space-y-2">
-        {matches.map(({ mentor: m, score, reasons }) => (
+        {matches.map(({ mentor: m, score, reasons, method }) => (
           <Row key={m.id}>
             <div className="flex items-start gap-3">
               <Avatar name={m.name} />
               <div className="min-w-0 flex-1">
-                <div className="flex items-baseline justify-between gap-2"><span className="font-semibold">{m.name}</span><span className="text-sm font-semibold">{score}% match</span></div>
+                <div className="flex items-baseline justify-between gap-2"><span className="font-semibold">{m.name}</span><span className="text-sm font-semibold">{score}% {method === 'hybrid-learned' ? 'predicted fit' : 'match'}</span></div>
                 <div className="text-sm">{m.jobTitle} at {m.company}, {m.university}</div>
                 <div className="my-2 h-2 bg-ice-deep"><div className="h-2 bg-gold" style={{ width: `${score}%` }} /></div>
                 <ul className="list-disc pl-5 text-sm text-muted">{reasons.map((r) => <li key={r}>{r}</li>)}</ul>

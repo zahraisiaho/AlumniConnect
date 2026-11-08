@@ -1,6 +1,20 @@
 // Rule-based matching (Table 5.4). Deterministic and explainable. Maximum score 100.
 const overlap = (a = [], b = []) => a.filter((x) => b.includes(x))
 
+// "Rules + text meaning": used when no learned model is loaded. A bonus for similar goals in the two bios,
+//   bonus = round(maxBonus * clamp((similarity - floor) / span, 0, 1))
+// so similarity at or below 0.2 adds nothing and 0.8 or above adds the full 15 points.
+// These values are hand-set until the learned model (ml/, backend/model/weights.json) replaces them.
+export const SEMANTIC_BONUS = { maxBonus: 15, floor: 0.2, span: 0.6 }
+
+export function semanticBonus(similarity, c = SEMANTIC_BONUS) {
+  const t = (Number(similarity) - c.floor) / c.span
+  return Number.isFinite(t) ? Math.round(c.maxBonus * Math.min(1, Math.max(0, t))) : 0
+}
+
+// On unless MATCH_SEMANTIC=off.
+export const semanticOn = (env = process.env) => String(env.MATCH_SEMANTIC || '').trim().toLowerCase() !== 'off'
+
 export function scoreMatch(student, mentor) {
   let score = 0
   const reasons = []

@@ -12,7 +12,11 @@ async function call(path, { method = 'GET', body } = {}) {
   try { res = await fetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined }) }
   catch { throw new Error('Cannot reach the server. Check that the backend is running.') }
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw Object.assign(new Error(data.error || 'Request failed.'), { status: res.status, code: data.code })
+  if (!res.ok) {
+    const fallback = res.status === 401 ? 'Your session has expired. Please sign in again.'
+      : res.status >= 500 ? 'The server is not available right now. Please try again in a moment.' : 'Request failed.'
+    throw Object.assign(new Error(data.error || fallback), { status: res.status, code: data.code })
+  }
   return data
 }
 const qs = (o) => {
@@ -29,10 +33,21 @@ export const api = {
     catch (e) { if (e.code === 'NO_PROFILE') return { needsProfile: true }; throw e }
   },
   createProfile: (data) => call('/profile', { method: 'POST', body: data }),
-  update: (id, patch) => call('/me', { method: 'PUT', body: patch }),
+  update: (patch) => call('/me', { method: 'PUT', body: patch }),
+  // Your data: everything stored about you as a JSON file, and deleting your account (needs confirm: 'DELETE').
+  async exportMyData() {
+    const t = tokenGetter ? await tokenGetter() : null
+    let res
+    try { res = await fetch(`${BASE}/me/export`, { headers: t ? { Authorization: `Bearer ${t}` } : {} }) }
+    catch { throw new Error('Cannot reach the server. Check your connection and try again.') }
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not prepare your data. Please try again.')
+    return res.blob()
+  },
+  deleteMe: () => call('/me', { method: 'DELETE', body: { confirm: 'DELETE' } }),
   universities: () => call('/universities'),
   alumni: (f = {}) => call(`/alumni${qs({ q: f.q, university: f.university, industry: f.industry })}`),
   matches: () => call('/matches'),
+  matchingMethod: () => call('/matching-method'),
   requestMentor: (fromId, toId) => call('/requests', { method: 'POST', body: { mentorId: toId } }),
   sentRequests: () => call('/requests/sent').catch((e) => (e.status === 403 ? [] : Promise.reject(e))),
   incoming: () => call('/requests/incoming'),
@@ -63,16 +78,27 @@ export const api = {
     return res.blob()
   },
   // Sends the CV for reading; returns suggested answers. The server does not store the file or save anything.
-  async parseCv(file) {
+  // No Content-Type header here: the browser sets multipart/form-data with its boundary.
+  async parseCv(file, { timeoutMs = 90000 } = {}) {
     const t = tokenGetter ? await tokenGetter() : null
     const body = new FormData()
     body.append('cv', file)
+    const abort = new AbortController()
+    const timer = setTimeout(() => abort.abort(), timeoutMs)
     let res
-    try { res = await fetch(`${BASE}/profile/parse-cv`, { method: 'POST', headers: t ? { Authorization: `Bearer ${t}` } : {}, body }) }
-    catch { throw new Error('Cannot reach the server. Check that the backend is running.') }
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data.error || 'Could not read the CV. Please fill in manually.')
-    return data.suggestions
+    try { res = await fetch(`${BASE}/profile/parse-cv`, { method: 'POST', headers: t ? { Authorization: `Bearer ${t}` } : {}, body, signal: abort.signal }) }
+    catch (e) {
+      throw new Error(e.name === 'AbortError' ? 'Reading your CV took too long. Please try again, or fill in manually.' : 'Cannot reach the server. Check your connection and try again.')
+    } finally { clearTimeout(timer) }
+    const data = await res.json().catch(() => ({}))   // a proxy or tunnel error page is not JSON
+    if (!res.ok) {
+      if (data.error) throw new Error(data.error)
+      if (res.status === 413) throw new Error('That file is larger than 5 MB. Please upload a smaller file or fill in manually.')
+      if (res.status === 401) throw new Error('Your session has expired. Please sign in again.')
+      if (res.status >= 500) throw new Error('The server is not available right now. Please try again in a moment.')
+      throw new Error('Could not read the CV. Please fill in manually.')
+    }
+    return data.suggestions || {}
   },
   adminUpdateUser: (id, patch) => call(`/admin/users/${id}`, { method: 'PUT', body: patch }),
   adminDeleteUser: (id) => call(`/admin/users/${id}`, { method: 'DELETE' }),

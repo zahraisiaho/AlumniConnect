@@ -1,15 +1,17 @@
 import { SignIn } from '@clerk/react'
+import { useSearchParams } from 'react-router-dom'
+import AuthShell, { clerkAppearance } from '../components/AuthShell'
 
 export default function Login() {
+  const [params] = useSearchParams()
   return (
-    <div className="grid min-h-screen md:grid-cols-2">
-      <section className="flex flex-col justify-end bg-navy p-8 md:p-14">
-        <h1 className="max-w-md font-display text-4xl leading-tight text-white md:text-5xl">Welcome to AlumniConnect.</h1>
-        <p className="mt-4 max-w-md text-ice-deep">Whether you are a student looking for direction or a graduate ready to share what you have learned, this is where universities meet. Create your profile, find a mentor or mentee from any university, join the conversation and stay up to date with news from your institution.</p>
-      </section>
-      <section className="grid place-items-center p-8">
-        <SignIn routing="path" path="/login" signUpUrl="/register" appearance={{ variables: { colorPrimary: '#0b1f3a' } }} />
-      </section>
-    </div>
+    <AuthShell
+      title="Welcome to AlumniConnect."
+      intro="Whether you are a student looking for direction or a graduate ready to share what you have learned, this is where universities meet. Create your profile, find a mentor or mentee from any university, join the conversation and stay up to date with news from your institution."
+      help={<p><strong className="text-navy">Forgot your password?</strong> Enter your email address and press Continue, then choose <em>Forgot password?</em> We will email you a code to set a new one.</p>}>
+      {params.get('deleted') && <p role="status" className="w-full max-w-[25rem] border-l-4 border-navy bg-white p-3 text-sm">Your account and your data have been deleted.</p>}
+      {/* After signing in, "/" sends the person straight to their page (directory or complete profile). */}
+      <SignIn routing="path" path="/login" signUpUrl="/register" fallbackRedirectUrl="/" appearance={clerkAppearance} />
+    </AuthShell>
   )
 }

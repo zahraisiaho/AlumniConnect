@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test:unit": "node --test test/matching.test.js test/roles.test.js test/hybrid.test.js test/cv.test.js",
-    "test": "node --test test/matching.test.js test/roles.test.js test/hybrid.test.js test/cv.test.js test/api.test.js"
+    "test:unit": "node --test test/names.test.js test/privacy.test.js test/matching.test.js test/roles.test.js test/hybrid.test.js test/cv.test.js",
+    "test": "node --test test/names.test.js test/privacy.test.js test/matching.test.js test/roles.test.js test/hybrid.test.js test/cv.test.js test/api.test.js"
   },
   "dependencies": {
     "@clerk/express": "^1.0.0",

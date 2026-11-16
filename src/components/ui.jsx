@@ -37,6 +37,11 @@ export function Row({ children, accent = 'border-gold' }) {
   return <div className={`border-l-4 ${accent} bg-white p-4`}>{children}</div>
 }
 
+// Lines describing another member. A limited profile has only first name, field, university and skills.
+export const workLine = (p) => [p.jobTitle, p.company].filter(Boolean).join(' at ')
+export const studyLine = (p) => [p.university, p.course || p.fieldOfStudy, p.gradYear && `(${p.gradYear})`].filter(Boolean).join(', ').replace(', (', ' (')
+export const LimitedNote = ({ p }) => (p?.profile === 'limited' ? <span className="ml-2 rounded bg-ice px-1.5 py-0.5 text-xs font-normal text-muted" title="This member shows a limited profile">Limited profile</span> : null)
+
 export function Tag({ children }) {
   return <span className="rounded bg-ice px-2 py-0.5 text-xs text-navy-soft">{children}</span>
 }

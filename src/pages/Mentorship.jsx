@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
-import { Avatar, PageTitle, Row, btnLine, btnGold } from '../components/ui'
+import { Avatar, PageTitle, Row, btnLine, btnGold, workLine, LimitedNote } from '../components/ui'
 
 export default function Mentorship() {
   const { user } = useAuth()
   const [matches, setMatches] = useState([])
+  const [method, setMethod] = useState('')   // e.g. "Learned model (trained on synthetic data)"; kept, not shown on the page
   const [incoming, setIncoming] = useState([])
   const [sent, setSent] = useState({})
   const [note, setNote] = useState(null)   // result of the last accept or decline
@@ -15,6 +16,7 @@ export default function Mentorship() {
   const load = () => {
     if (isStudent) {
       api.matches(user).then(setMatches)
+      api.matchingMethod().then((m) => setMethod(m.label)).catch(() => {})
       api.sentRequests(user.id).then((r) => setSent(Object.fromEntries(r.map((x) => [x.toId, x.status]))))
     } else api.incoming(user.id).then(setIncoming)
   }
@@ -41,7 +43,7 @@ export default function Mentorship() {
             <Row key={r.id}>
               <div className="flex items-center gap-3">
                 <Avatar name={r.from.name} />
-                <div className="flex-1"><div className="font-semibold">{r.from.name}</div><div className="text-sm text-muted">{r.from.university}, {r.from.course}</div></div>
+                <div className="flex-1"><div className="font-semibold">{r.from.name}</div><div className="text-sm text-muted">{[r.from.university, r.from.course || r.from.fieldOfStudy].filter(Boolean).join(', ')}</div></div>
                 {r.status === 'pending'
                   ? <><button className={btnGold} onClick={() => answer(r.id, 'accepted')}>Accept</button><button className={btnLine} onClick={() => answer(r.id, 'declined')}>Decline</button></>
                   : <span className="text-sm capitalize text-muted">{r.status}</span>}
@@ -65,8 +67,8 @@ export default function Mentorship() {
             <div className="flex items-start gap-3">
               <Avatar name={m.name} />
               <div className="min-w-0 flex-1">
-                <div className="flex items-baseline justify-between gap-2"><span className="font-semibold">{m.name}</span><span className="text-sm font-semibold">{score}% {method === 'hybrid-learned' ? 'predicted fit' : 'match'}</span></div>
-                <div className="text-sm">{m.jobTitle} at {m.company}, {m.university}</div>
+                <div className="flex items-baseline justify-between gap-2"><span className="font-semibold">{m.name}<LimitedNote p={m} /></span><span className="text-sm font-semibold">{score}% {method === 'hybrid-learned' ? 'predicted fit' : 'match'}</span></div>
+                <div className="text-sm">{[workLine(m), m.university].filter(Boolean).join(', ')}</div>
                 <div className="my-2 h-2 bg-ice-deep"><div className="h-2 bg-gold" style={{ width: `${score}%` }} /></div>
                 <ul className="list-disc pl-5 text-sm text-muted">{reasons.map((r) => <li key={r}>{r}</li>)}</ul>
               </div>

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { FEATURES, pairFeatures, predict, validModel, loadModel } from '../src/hybrid.js'
+import { FEATURES, pairFeatures, predict, validModel, loadModel, methodLabel } from '../src/hybrid.js'
 import { lexicalEmbedder, cosine } from '../src/embeddings.js'
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/model_fixture.json', import.meta.url)))
@@ -61,4 +61,20 @@ test('lexical text similarity ranks related goals above unrelated ones', async (
 test('empty text gives zero similarity, not an error', async () => {
   assert.equal(cosine(await lexicalEmbedder.embed(''), await lexicalEmbedder.embed('machine learning')), 0)
   assert.equal(cosine(null, [1]), 0)
+})
+
+test('method label says when the learned model was trained on synthetic data', () => {
+  assert.equal(methodLabel('hybrid-learned', { ...fixture.model, data_source: 'synthetic' }), 'Learned model (trained on synthetic data)')
+  assert.equal(methodLabel('hybrid-learned', { ...fixture.model, data_source: 'real ratings' }), 'Learned model (trained on tester ratings)')
+  assert.equal(methodLabel('hybrid-learned', fixture.model), 'Learned model')   // older weights.json without data_source
+  assert.equal(methodLabel('rules+meaning'), 'Rules + text meaning')
+  assert.equal(methodLabel('rules'), 'Rules')
+})
+
+test('weights.json written by ml/train.py on synthetic data is a valid model for the backend', () => {
+  const w = { type: 'logistic', version: '2026-11-09', data_source: 'synthetic', banner: 'SYNTHETIC DATA', dataset: { pairs: 4500 }, features: FEATURES,
+    intercept: -2.1, coefficients: Object.fromEntries(FEATURES.map((f) => [f, 0.5])), threshold: 0.36, embedding_provider: 'minilm-l6-v2', trained_on: { pairs: 4500 } }
+  assert.ok(validModel(w))
+  const dir = mkdtempSync(join(tmpdir(), 'model-')); const p = join(dir, 'weights.json'); writeFileSync(p, JSON.stringify(w))
+  assert.equal(methodLabel('hybrid-learned', loadModel(p)), 'Learned model (trained on synthetic data)')
 })

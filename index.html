@@ -9,7 +9,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Static loading screen until the app starts (React replaces it); same look as Splash in src/App.jsx. -->
+    <div id="root"><div data-splash style="min-height:100vh;display:grid;place-items:center;background:#eaf3fb;color:#5b6b80;font:14px system-ui,sans-serif">Loading…</div></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

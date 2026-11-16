@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { api } from '../lib/api'
 import { universities, fields, industries } from '../data/options'
 import { btnLine } from './ui'
@@ -27,37 +27,45 @@ export function applySuggestions(v, s, roleOf) {
   return { next, keys }
 }
 
+// One button: it opens the file picker, and choosing a file reads it straight away.
+// (The browser's own file input is hidden: with the app's CSS reset its "Choose file" button looked like plain text,
+// and the separate "Fill in from CV" button stayed disabled, so pressing it did nothing.)
 export default function CvFill({ onSuggest }) {
-  const [file, setFile] = useState(null)
+  const picker = useRef(null)
   const [busy, setBusy] = useState(false)
+  const [name, setName] = useState('')
   const [err, setErr] = useState('')
   const [done, setDone] = useState('')
 
-  const pick = (e) => {
-    const f = e.target.files?.[0] || null
-    setErr(''); setDone(''); setFile(null)
-    if (!f) return
+  const read = async (f) => {
+    setErr(''); setDone(''); setName(f.name)
     if (!/\.(pdf|docx)$/i.test(f.name)) return setErr('Please choose a PDF or Word (.docx) file.')
     if (f.size > MAX_BYTES) return setErr('That file is larger than 5 MB. Please upload a smaller file or fill in manually.')
-    setFile(f)
-  }
-  const run = async () => {
-    setBusy(true); setErr(''); setDone('')
+    if (!f.size) return setErr('That file is empty. Please choose another file.')
+    setBusy(true)
     try {
-      const n = onSuggest(await api.parseCv(file))
+      const n = onSuggest(await api.parseCv(f))
       setDone(n ? `We filled in ${n} ${n === 1 ? 'answer' : 'answers'} from your CV. Please check them before saving.` : "We couldn't find answers in this CV; please fill in manually.")
-    } catch (x) { setErr(x.message) }
+    } catch (x) { setErr(x.message || 'Could not read the CV. Please fill in manually.') }
     finally { setBusy(false) }
+  }
+  const pick = (e) => {
+    const f = e.target.files?.[0]
+    e.target.value = ''   // so choosing the same file again still works
+    if (f) read(f)
   }
 
   return (
     <section aria-labelledby="cv-title" className="space-y-2 border border-ice-deep bg-white p-4">
       <h2 id="cv-title" className="font-semibold">Upload your CV to fill in your profile</h2>
-      <p className="text-sm text-muted">Your CV is read to suggest answers and is not stored. PDF or Word (.docx), up to 5 MB.</p>
+      <p id="cv-help" className="text-sm text-muted">Your CV is read to suggest answers and is not stored. PDF or Word (.docx), up to 5 MB.</p>
+      <input ref={picker} type="file" className="sr-only" tabIndex={-1} aria-hidden="true" onChange={pick}
+        accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
       <div className="flex flex-wrap items-center gap-2">
-        <input type="file" className="max-w-full text-sm" aria-label="Your CV (PDF or Word, up to 5 MB)"
-          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={pick} />
-        <button type="button" className={btnLine} disabled={!file || busy} onClick={run}>{busy ? 'Reading…' : 'Fill in from CV'}</button>
+        <button type="button" className={btnLine} disabled={busy} aria-describedby="cv-help" onClick={() => picker.current?.click()}>
+          {busy ? 'Reading your CV…' : 'Upload CV'}
+        </button>
+        {name && <span className="max-w-full truncate text-sm text-muted">{name}</span>}
       </div>
       {err && <p role="alert" className="border-l-4 border-gold p-2 text-sm">{err}</p>}
       {done && <p role="status" className="text-sm">{done}</p>}

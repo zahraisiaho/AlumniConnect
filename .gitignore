@@ -5,3 +5,6 @@ dist
 
 # Kept locally only
 ml/README.md
+
+# Python caches
+__pycache__/

@@ -1,31 +1,28 @@
 import { useEffect, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
 import { useUser } from '@clerk/react'
 import { useAuth } from '../context/AuthContext'
 import { Field, Suggested, input, btn, btnLine } from '../components/ui'
 import ProfileFields, { fromForm } from '../components/ProfileFields'
 import { roleFor } from '../lib/role'
+import { nameProblem, NAME_MAX } from '../lib/name'
 import CvFill, { applySuggestions } from '../components/CvFill'
+import { VisibilityPicker, PrivacySummary, ConsentBox, PrivacyFooter } from '../components/Privacy'
 
 const steps = ['About you', 'Career and matching']
 
 export default function CompleteProfile() {
-  const { createProfile, user, signedIn, ready } = useAuth()
+  const { createProfile } = useAuth()   // only reached when signed in without a profile (see Gate in App.jsx)
   const { user: clerkUser } = useUser()
-  const go = useNavigate()
   const [step, setStep] = useState(0)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [suggested, setSuggested] = useState(() => new Set())   // fields filled in from the CV
-  const [v, setV] = useState({ name: '', university: '', otherUniversity: '', course: '', fieldOfStudy: '', gradYear: '', industry: '', jobTitle: '', company: '', skills: [], interests: [], availability: '', mentor: true, bio: '' })
+  const [v, setV] = useState({ name: '', university: '', otherUniversity: '', course: '', fieldOfStudy: '', gradYear: '', industry: '', jobTitle: '', company: '', skills: [], interests: [], availability: '', mentor: true, bio: '', visibility: 'limited' })
+  const [consent, setConsent] = useState(false)
 
   useEffect(() => {
     if (clerkUser) setV((x) => (x.name ? x : { ...x, name: [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ') }))
   }, [clerkUser])
-
-  if (!ready) return null
-  if (!signedIn) return <Navigate to="/login" replace />
-  if (user) return <Navigate to="/directory" replace />
 
   const role = roleFor(v.gradYear)          // inferred from graduation year, never asked
   const form = { ...v, role }
@@ -33,7 +30,7 @@ export default function CompleteProfile() {
 
   const problem = () => {
     if (step !== 0) return ''
-    if (!v.name.trim()) return 'Enter your name.'
+    if (nameProblem(v.name)) return nameProblem(v.name)
     if (!v.university || (v.university === 'Other' && !v.otherUniversity.trim())) return 'Choose your university.'
     if (!v.fieldOfStudy) return 'Choose your field of study.'
     if (!Number.isInteger(year) || year < 1980 || year > 2040) return 'Enter your graduation year, or the year you expect to graduate.'
@@ -48,8 +45,10 @@ export default function CompleteProfile() {
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr('')
     try {
+      if (!consent) { setErr('Please read the privacy notice and tick the box to agree before saving your profile.'); setBusy(false); return }
       const { role: ignored, ...payload } = fromForm(v)   // the server decides the role from the graduation year
-      await createProfile(payload); go('/directory')
+      payload.consent = true
+      await createProfile(payload)   // the status becomes 'ready' and the gate opens the directory
     } catch (x) { setErr(x.message); setBusy(false) }
   }
 
@@ -62,7 +61,7 @@ export default function CompleteProfile() {
         {step === 0 && (
           <>
             <CvFill onSuggest={fillFromCv} />
-            <Field label="Full name"><input className={input} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></Field>
+            <Field label="Full name"><input className={input} autoComplete="name" maxLength={NAME_MAX + 20} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></Field>
             <ProfileFields v={form} set={setV} section="academic" suggested={suggested} />
           </>
         )}
@@ -77,6 +76,9 @@ export default function CompleteProfile() {
             <Field label={<>{role === 'alumnus' ? 'What can you help mentees with? (a few sentences)' : 'What do you want guidance on? (a few sentences)'}{suggested.has('bio') && <Suggested />}</>}>
               <textarea rows={4} maxLength={1000} className={input} value={v.bio} onChange={(e) => setV({ ...v, bio: e.target.value })} />
             </Field>
+            <VisibilityPicker value={v.visibility} onChange={(x) => setV({ ...v, visibility: x })} />
+            <PrivacySummary />
+            <ConsentBox checked={consent} onChange={setConsent} />
           </>
         )}
         {err && <p role="alert" className="border-l-4 border-gold bg-white p-3 text-sm">{err}</p>}
@@ -85,6 +87,7 @@ export default function CompleteProfile() {
           {step === 0 ? <button type="button" className={btn} onClick={next}>Continue</button> : <button className={btn} disabled={busy}>{busy ? 'Saving…' : 'Finish'}</button>}
         </div>
       </form>
+      <PrivacyFooter />
     </div>
   )
 }

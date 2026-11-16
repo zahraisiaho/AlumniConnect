@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { industries } from '../data/options'
-import { Avatar, PageTitle, Row, Tag, input, btnLine } from '../components/ui'
+import { Avatar, PageTitle, Row, Tag, input, btnLine, workLine, studyLine, LimitedNote } from '../components/ui'
 
 export default function Directory() {
   const { user } = useAuth()
@@ -17,7 +17,7 @@ export default function Directory() {
 
   return (
     <>
-      <PageTitle title="Alumni directory" sub="Browse graduates from every university on the platform." />
+      <PageTitle title="Alumni directory" sub="Alumni who chose to be listed. Some show a limited profile; hidden members are not listed." />
       <div className="mb-4 grid gap-2 md:grid-cols-3">
         <input className={input} placeholder="Search name, role, skill" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} aria-label="Search" />
         <select className={input} value={f.university} onChange={(e) => setF({ ...f, university: e.target.value })} aria-label="University">
@@ -33,9 +33,9 @@ export default function Directory() {
             <div className="flex items-start gap-3">
               <Avatar name={a.name} />
               <div className="min-w-0 flex-1">
-                <div className="font-semibold">{a.name}</div>
-                <div className="text-sm">{a.jobTitle}{a.company && ` at ${a.company}`}</div>
-                <div className="text-sm text-muted">{a.university}, {a.course} ({a.gradYear})</div>
+                <div className="font-semibold">{a.name}<LimitedNote p={a} /></div>
+                {workLine(a) && <div className="text-sm">{workLine(a)}</div>}
+                <div className="text-sm text-muted">{studyLine(a)}</div>
                 <div className="mt-2 flex flex-wrap gap-1">{(a.skills || []).map((s) => <Tag key={s}>{s}</Tag>)}</div>
               </div>
               {user.role === 'student' && a.mentor && (

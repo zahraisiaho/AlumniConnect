@@ -1,4 +1,7 @@
 pandas
 numpy
 scikit-learn
+matplotlib
 nbformat
+# optional, only if Node and the backend are not available (e.g. Colab regenerating the data):
+# sentence-transformers

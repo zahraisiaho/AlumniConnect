@@ -5,8 +5,10 @@ import { scoreMatch, semanticBonus } from './matching.js'
 import { roleFor } from './roles.js'
 import { createHash } from 'node:crypto'
 import { cosine, lexicalEmbedder } from './embeddings.js'
-import { FEATURES, pairFeatures, predict } from './hybrid.js'
+import { FEATURES, pairFeatures, predict, methodLabel } from './hybrid.js'
 import multer from 'multer'
+import { nameProblem, cleanName } from './names.js'
+import { viewOf, reasonsFor, visibilityProblem, DEFAULT_VISIBILITY, PRIVACY_NOTICE_VERSION } from './privacy.js'
 import { CvError, MAX_CV_BYTES, extractText, kindOf, suggest } from './cv.js'
 
 // CVs are held in memory for the one request only: never written to disk, stored or logged.
@@ -56,6 +58,7 @@ const USER_SQL = `
   SELECT u.id, u.name, u.email, u.role, uni.name AS university, u.course, f.name AS "fieldOfStudy",
          u.grad_year AS "gradYear", i.name AS industry, u.job_title AS "jobTitle", u.company,
          a.name AS availability, COALESCE(u.bio, '') AS bio, u.is_mentor AS mentor, u.created_at AS "createdAt",
+         u.visibility, u.privacy_consent_at AS "privacyConsentAt", u.privacy_notice_version AS "privacyNoticeVersion",
          COALESCE((SELECT array_agg(s.name ORDER BY s.name) FROM user_skills us JOIN skills s ON s.id = us.skill_id WHERE us.user_id = u.id), '{}') AS skills,
          COALESCE((SELECT array_agg(it.name ORDER BY it.name) FROM user_interests ui JOIN interests it ON it.id = ui.interest_id WHERE ui.user_id = u.id), '{}') AS interests
   FROM users u
@@ -64,7 +67,21 @@ const USER_SQL = `
   LEFT JOIN industries i ON i.id = u.industry_id
   LEFT JOIN availability_options a ON a.id = u.availability_id`
 const getUsers = (where = '', params = []) => q(`${USER_SQL} ${where}`, params)
-const publicUser = ({ email, ...rest }) => rest   // email is never shown to other users
+// Lists of other people go through viewOf (privacy.js), which also never includes the email address.
+
+// How the viewer is related to other people (see privacy.js): active mentorship partners see each other in full;
+// people they dealt with before (ended mentorships, requests in either direction) see at least the limited profile, but only
+// where that history is shown (My mentorships, incoming requests): a hidden person stays out of the directory and other lists.
+async function relationsOf(viewerId, { contacts: withContacts = false } = {}) {
+  const rows = await q(
+    `SELECT CASE WHEN student_id = $1 THEN mentor_id ELSE student_id END AS other, status FROM mentorship_matches
+       WHERE status IS NOT NULL AND $1 IN (student_id, mentor_id)
+     UNION ALL
+     SELECT CASE WHEN student_id = $1 THEN mentor_id ELSE student_id END, 'request' FROM mentorship_requests WHERE $1 IN (student_id, mentor_id)`, [viewerId])
+  const partners = new Set(rows.filter((r) => r.status === 'active').map((r) => r.other))
+  const contacts = new Set(rows.map((r) => r.other))
+  return (id) => (id === viewerId ? 'self' : partners.has(id) ? 'partner' : withContacts && contacts.has(id) ? 'contact' : 'member')
+}
 
 async function idOf(table, label, name) {
   if (!name) return null
@@ -147,7 +164,10 @@ app.post('/api/profile', wrap(async (req, res) => {
   const gradYear = Number(d.gradYear)
   if (!Number.isInteger(gradYear) || gradYear < 1980 || gradYear > 2040) throw bad('Enter your graduation year (or the year you expect to graduate).')
   const role = roleFor(gradYear)   // a role sent by the client is ignored
-  if (!String(d.name || '').trim()) throw bad('Name is required.')
+  if (d.consent !== true) throw bad('Please read the privacy notice and tick the box to agree before saving your profile.')
+  const visibility = d.visibility ?? DEFAULT_VISIBILITY
+  if (visibilityProblem(visibility)) throw bad(visibilityProblem(visibility))
+  if (nameProblem(d.name)) throw bad(nameProblem(d.name))
   if (!d.fieldOfStudy) throw bad('Field of study is required.')
   if (!String(d.university || '').trim()) throw bad('University is required.')
   if ((await q('SELECT 1 FROM users WHERE lower(email) = lower($1)', [email])).length) throw bad('A profile with this email already exists.', 409)
@@ -157,10 +177,12 @@ app.post('/api/profile', wrap(async (req, res) => {
   ])
   const uni = await universityId(d.university)
   const [{ uid }] = await q(
-    `INSERT INTO users (clerk_user_id, email, name, role, university_id, course, field_id, grad_year, industry_id, job_title, company, availability_id, is_mentor, bio)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id AS uid`,
-    [id.clerkId, email, d.name.trim(), role, uni, d.course || null, field, gradYear, industry,
-      role === 'alumnus' ? d.jobTitle || null : null, role === 'alumnus' ? d.company || null : null, avail, role === 'alumnus' && !!d.mentor, d.bio ? String(d.bio).trim().slice(0, 1000) || null : null])
+    `INSERT INTO users (clerk_user_id, email, name, role, university_id, course, field_id, grad_year, industry_id, job_title, company, availability_id, is_mentor, bio,
+                        visibility, privacy_consent_at, privacy_notice_version)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now(),$16) RETURNING id AS uid`,
+    [id.clerkId, email, cleanName(d.name), role, uni, d.course || null, field, gradYear, industry,
+      role === 'alumnus' ? d.jobTitle || null : null, role === 'alumnus' ? d.company || null : null, avail, role === 'alumnus' && !!d.mentor, d.bio ? String(d.bio).trim().slice(0, 1000) || null : null,
+      visibility, PRIVACY_NOTICE_VERSION])
   await setLinks(uid, 'user_skills', 'skill_id', skills)
   await setLinks(uid, 'user_interests', 'interest_id', interests)
   const [user] = await getUsers('WHERE u.id = $1', [uid])
@@ -225,7 +247,9 @@ async function applyPatch(userId, currentRole, d, { allowRole = false } = {}) {
     if (!Number.isInteger(y) || y < 1980 || y > 2040) throw bad('Enter a valid graduation year.')
     if (!allowRole && role !== 'admin' && roleFor(y) !== role) { role = roleFor(y); add('role', role) }   // role follows graduation year
   }
-  if ('name' in d) { if (!String(d.name).trim()) throw bad('Name is required.'); add('name', d.name.trim()) }
+  if ('name' in d) { if (nameProblem(d.name)) throw bad(nameProblem(d.name)); add('name', cleanName(d.name)) }
+  if ('visibility' in d) { if (visibilityProblem(d.visibility)) throw bad(visibilityProblem(d.visibility)); add('visibility', d.visibility) }
+  if (d.consent === true) { add('privacy_consent_at', new Date()); add('privacy_notice_version', PRIVACY_NOTICE_VERSION) }
   for (const [k, col] of [['course', 'course'], ['jobTitle', 'job_title'], ['company', 'company'], ['bio', 'bio']]) if (k in d) add(col, k === 'bio' ? String(d.bio || '').trim().slice(0, 1000) || null : d[k] || null)
   if ('gradYear' in d) add('grad_year', Number(d.gradYear) || null)
   if ('university' in d && (d.university || role !== 'admin')) add('university_id', await universityId(d.university))
@@ -250,21 +274,75 @@ async function applyPatch(userId, currentRole, d, { allowRole = false } = {}) {
 
 app.put('/api/me', auth(), wrap(async (req, res) => res.json(await applyPatch(req.user.id, req.user.role, req.body || {}))))
 
+// ---------- your data (Data Protection Act, 2019: access and erasure) ----------
+// Everything stored about the caller, and only the caller: other people appear as ids, never by name or profile.
+app.get('/api/me/export', auth(), wrap(async (req, res) => {
+  const me = req.user.id
+  const [profile] = await getUsers('WHERE u.id = $1', [me])
+  const rows = (sql) => q(sql, [me])
+  const data = {
+    about: 'Everything AlumniConnect stores about you. Other people are shown by id only. Your CV file is never stored.',
+    exportedAt: new Date().toISOString(),
+    profile,
+    mentorshipRequestsSent: await rows('SELECT mentor_id AS "mentorId", status, created_at AS "createdAt", responded_at AS "respondedAt" FROM mentorship_requests WHERE student_id = $1 ORDER BY created_at'),
+    mentorshipRequestsReceived: await rows('SELECT student_id AS "studentId", status, created_at AS "createdAt", responded_at AS "respondedAt" FROM mentorship_requests WHERE mentor_id = $1 ORDER BY created_at'),
+    mentorships: await rows(`SELECT id, CASE WHEN student_id = $1 THEN 'student' ELSE 'mentor' END AS "yourRole",
+        CASE WHEN student_id = $1 THEN mentor_id ELSE student_id END AS "otherPersonId", status, started_at AS "startedAt", ended_at AS "endedAt"
+      FROM mentorship_matches WHERE status IS NOT NULL AND $1 IN (student_id, mentor_id) ORDER BY started_at`),
+    messagesYouSent: await rows('SELECT match_id AS "mentorshipId", body, created_at AS "createdAt" FROM messages WHERE sender_id = $1 ORDER BY created_at'),
+    sessions: await rows(`SELECT s.match_id AS "mentorshipId", s.starts_at AS "startsAt", s.topic, s.status, (s.proposed_by = $1) AS "proposedByYou"
+      FROM mentoring_sessions s JOIN mentorship_matches m ON m.id = s.match_id WHERE $1 IN (m.student_id, m.mentor_id) ORDER BY s.starts_at`),
+    reviewsYouWrote: await rows(`SELECT r.match_id AS "mentorshipId", r.rating, r.comment, r.created_at AS "createdAt"
+      FROM mentorship_reviews r JOIN mentorship_matches m ON m.id = r.match_id WHERE m.student_id = $1 ORDER BY r.created_at`),
+    mentorRatingsYouGave: await rows('SELECT mentor_id AS "mentorId", helpful, created_at AS "createdAt", updated_at AS "updatedAt" FROM match_feedback WHERE student_id = $1 ORDER BY created_at'),
+    forumPosts: await rows('SELECT id, title, body, category, created_at AS "createdAt" FROM forum_posts WHERE author_id = $1 ORDER BY created_at'),
+    forumReplies: await rows('SELECT post_id AS "postId", body, created_at AS "createdAt" FROM forum_replies WHERE author_id = $1 ORDER BY created_at'),
+    storedForMatching: (await rows('SELECT provider, updated_at AS "updatedAt" FROM profile_embeddings WHERE user_id = $1'))
+      .map((e) => ({ ...e, what: 'A list of numbers computed from your bio to compare goals. It cannot be turned back into text.' })),
+  }
+  res.set('Cache-Control', 'no-store')
+  res.set('Content-Disposition', 'attachment; filename="alumniconnect-my-data.json"')
+  res.json(data)
+}))
+
+// Deletes the caller's profile, everything linked to it, and their sign-in account. Needs { confirm: 'DELETE' }.
+app.delete('/api/me', auth(), wrap(async (req, res) => {
+  if (req.body?.confirm !== 'DELETE') throw bad('To delete your account, confirm by typing DELETE.')
+  if (req.user.role === 'admin' && (await q("SELECT count(*)::int AS n FROM users WHERE role = 'admin'"))[0].n <= 1) {
+    throw bad('You are the only administrator. Make someone else an administrator before deleting your account.', 409)
+  }
+  const [{ clerk_user_id: clerkId }] = await q('SELECT clerk_user_id FROM users WHERE id = $1', [req.user.id])
+  if (clerkId) {   // sign-in account first: if that fails, nothing is deleted
+    try { await deleteIdentity(clerkId) }
+    catch (e) { if (e?.status !== 404) throw bad('Could not remove your sign-in account, so nothing was deleted. Please try again.', 502) }
+  }
+  await q('DELETE FROM users WHERE id = $1', [req.user.id])   // skills, requests, mentorships, messages, ratings and posts cascade
+  res.json({ ok: true })
+}))
+
 // ---------- directory ----------
 app.get('/api/alumni', auth(), wrap(async (req, res) => {
   const { q: term = '', university = '', industry = '' } = req.query
-  const rows = await getUsers(
-    `WHERE u.role = 'alumnus' AND ($1 = '' OR uni.name = $1) AND ($2 = '' OR i.name = $2)
-       AND ($3 = '' OR position(lower($3) in lower(concat_ws(' ', u.name, u.job_title, u.company, u.course, f.name,
-            (SELECT string_agg(s.name, ' ') FROM user_skills us JOIN skills s ON s.id = us.skill_id WHERE us.user_id = u.id)))) > 0)
-     ORDER BY u.name`, [String(university), String(industry), String(term).trim()])
-  res.json(rows.map(publicUser))
+  const relation = await relationsOf(req.user.id)
+  const rows = await getUsers("WHERE u.role = 'alumnus' ORDER BY u.name")
+  const t = String(term).trim().toLowerCase()
+  // Filtering happens on the visible profile, so a search cannot reveal hidden details (e.g. a limited profile's employer).
+  const shown = rows.map((u) => viewOf(u, relation(u.id))).filter(Boolean)
+    .filter((v) => (!university || v.university === String(university)) && (!industry || v.industry === String(industry)))
+    .filter((v) => !t || [v.name, v.jobTitle, v.company, v.course, v.fieldOfStudy, ...(v.skills || [])].filter(Boolean).join(' ').toLowerCase().includes(t))
+  res.json(shown)
 }))
 
 // ---------- mentorship ----------
+// Which matching method is in use, for the label on the matches page, e.g. "Learned model (trained on synthetic data)".
+const matchingMode = () => (model ? 'hybrid-learned' : semantic ? 'rules+meaning' : 'rules')
+app.get('/api/matching-method', auth('student'), (req, res) => {
+  res.json({ method: matchingMode(), label: methodLabel(matchingMode(), model), dataSource: model?.data_source ?? null })
+})
+
 app.get('/api/matches', auth('student'), wrap(async (req, res) => {
   const [me] = await getUsers('WHERE u.id = $1', [req.user.id])
-  const mentors = await getUsers("WHERE u.role = 'alumnus' AND u.is_mentor AND u.id <> $1", [me.id])
+  const mentors = await getUsers("WHERE u.role = 'alumnus' AND u.is_mentor AND u.visibility <> 'hidden' AND u.id <> $1", [me.id])
   const meaning = !model && semantic
   let sims = new Map(); let usable = false
   if (model) {   // text similarity is only used when it comes from the same embedding provider the model was trained with
@@ -273,19 +351,19 @@ app.get('/api/matches', auth('student'), wrap(async (req, res) => {
   } else if (meaning) sims = (await similarities(me, mentors)).sims   // no bio on either side gives similarity 0
   const out = mentors.map((m) => {
     const rule = scoreMatch(me, m)
-    const rulesOnly = { mentor: publicUser(m), score: rule.score, reasons: rule.reasons, ruleScore: rule.score, method: 'rules' }
+    const rulesOnly = { mentor: m, score: rule.score, reasons: rule.reasons, ruleScore: rule.score, method: 'rules' }
     if (!model) {
       const sim = meaning ? sims.get(m.id) || 0 : 0
       const bonus = semanticBonus(sim)
       if (!bonus) return rulesOnly
-      return { mentor: publicUser(m), score: Math.min(100, rule.score + bonus), reasons: [...rule.reasons, `Similar goals in their bios (${Math.round(100 * sim)}% similar)`],
+      return { mentor: m, score: Math.min(100, rule.score + bonus), reasons: [...rule.reasons, `Similar goals in their bios (${Math.round(100 * sim)}% similar)`],
         ruleScore: rule.score, similarity: round2(sim), method: 'rules+meaning' }
     }
     const sim = usable ? sims.get(m.id) || 0 : 0
     const p = predict(model, pairFeatures(me, m, sim))
     const reasons = [...rule.reasons]
     if (sim >= 0.3) reasons.push(`Profiles describe similar goals (text similarity ${sim.toFixed(2)})`)
-    return { mentor: publicUser(m), score: Math.round(100 * p), reasons, ruleScore: rule.score, similarity: round2(sim), method: 'hybrid-learned' }
+    return { mentor: m, score: Math.round(100 * p), reasons, ruleScore: rule.score, similarity: round2(sim), method: 'hybrid-learned' }
   }).filter((x) => (x.method === 'hybrid-learned' ? x.ruleScore > 0 || x.similarity >= 0.3 : x.score > 0))   // rules+meaning can add people from other fields
     .sort((a, b) => b.score - a.score || a.mentor.name.localeCompare(b.mentor.name))
     .slice(0, 10)
@@ -296,21 +374,23 @@ app.get('/api/matches', auth('student'), wrap(async (req, res) => {
              ON CONFLICT (student_id, mentor_id) DO UPDATE SET score = EXCLUDED.score, reasons = EXCLUDED.reasons, generated_at = now()`,
     [me.id, x.mentor.id, x.score, JSON.stringify(x.reasons)])
   }
-  res.json(out)
+  const relation = await relationsOf(me.id)
+  res.json(out.map((x) => { const v = viewOf(x.mentor, relation(x.mentor.id)); return { ...x, mentor: v, reasons: reasonsFor(x.reasons, v) } }))
 }))
 
 // ---------- tester ratings (training data for the learned model) ----------
 // Mentors are listed without any score, in an order that does not depend on the ranking, so ratings are not biased by position.
 app.get('/api/rate/candidates', auth('student'), wrap(async (req, res) => {
-  const mentors = await getUsers("WHERE u.role = 'alumnus' AND u.is_mentor AND u.id <> $1 ORDER BY u.id LIMIT 30", [req.user.id])
+  const mentors = await getUsers("WHERE u.role = 'alumnus' AND u.is_mentor AND u.visibility <> 'hidden' AND u.id <> $1 ORDER BY u.id LIMIT 30", [req.user.id])
+  const relation = await relationsOf(req.user.id)
   const given = new Map((await q('SELECT mentor_id, helpful FROM match_feedback WHERE student_id = $1', [req.user.id])).map((r) => [r.mentor_id, r.helpful]))
-  res.json(mentors.map((m) => ({ ...publicUser(m), rating: given.has(m.id) ? given.get(m.id) : null })))
+  res.json(mentors.map((m) => ({ ...viewOf(m, relation(m.id)), rating: given.has(m.id) ? given.get(m.id) : null })))
 }))
 
 app.post('/api/rate', auth('student'), wrap(async (req, res) => {
   const mentorId = Number(req.body?.mentorId)
   if (typeof req.body?.helpful !== 'boolean') throw bad('Answer yes or no.')
-  if (!(await q("SELECT 1 FROM users WHERE id = $1 AND role = 'alumnus' AND is_mentor", [mentorId])).length) throw bad('That person is not available as a mentor.', 404)
+  if (!(await q("SELECT 1 FROM users WHERE id = $1 AND role = 'alumnus' AND is_mentor AND visibility <> 'hidden'", [mentorId])).length) throw bad('That person is not available as a mentor.', 404)
   await q(`INSERT INTO match_feedback (student_id, mentor_id, helpful) VALUES ($1,$2,$3)
            ON CONFLICT (student_id, mentor_id) DO UPDATE SET helpful = $3, updated_at = now()`, [req.user.id, mentorId, req.body.helpful])
   res.status(201).json({ ok: true })
@@ -318,7 +398,7 @@ app.post('/api/rate', auth('student'), wrap(async (req, res) => {
 
 app.post('/api/requests', auth('student'), wrap(async (req, res) => {
   const mentorId = Number(req.body?.mentorId)
-  if (!(await q("SELECT 1 FROM users WHERE id = $1 AND role = 'alumnus' AND is_mentor", [mentorId])).length) throw bad('That person is not available as a mentor.', 404)
+  if (!(await q("SELECT 1 FROM users WHERE id = $1 AND role = 'alumnus' AND is_mentor AND visibility <> 'hidden'", [mentorId])).length) throw bad('That person is not available as a mentor.', 404)
   await q('INSERT INTO mentorship_requests (student_id, mentor_id) VALUES ($1,$2) ON CONFLICT (student_id, mentor_id) DO NOTHING', [req.user.id, mentorId])
   res.status(201).json({ ok: true })
 }))
@@ -328,10 +408,14 @@ app.get('/api/requests/sent', auth('student'), wrap(async (req, res) =>
 
 app.get('/api/requests/incoming', auth('alumnus'), wrap(async (req, res) => {
   const rows = await q(
-    `SELECT r.id, r.status, r.created_at AS "createdAt", s.id AS "studentId", s.name, uni.name AS university, s.course
-     FROM mentorship_requests r JOIN users s ON s.id = r.student_id LEFT JOIN universities uni ON uni.id = s.university_id
-     WHERE r.mentor_id = $1 ORDER BY r.created_at DESC`, [req.user.id])
-  res.json(rows.map(({ studentId, name, university, course, ...r }) => ({ ...r, from: { id: studentId, name, university, course } })))
+    `SELECT r.id, r.status, r.created_at AS "createdAt", r.student_id AS "studentId"
+     FROM mentorship_requests r WHERE r.mentor_id = $1 ORDER BY r.created_at DESC`, [req.user.id])
+  const relation = await relationsOf(req.user.id, { contacts: true })
+  const people = new Map((rows.length ? await getUsers('WHERE u.id = ANY($1)', [rows.map((r) => r.studentId)]) : []).map((u) => [u.id, u]))
+  res.json(rows.map(({ studentId, ...r }) => {
+    const v = viewOf(people.get(studentId), relation(studentId))   // a request makes the student a contact: at least limited
+    return { ...r, from: { id: studentId, name: v.name, university: v.university, course: v.course ?? null, fieldOfStudy: v.fieldOfStudy, profile: v.profile } }
+  }))
 }))
 
 // Accepting starts (or reuses) the pair's mentorship. A mentor can have at most MAX_MENTEES active mentees.
@@ -389,7 +473,8 @@ const MENTORSHIP_SQL = `
 async function mentorshipsOf(userId, where = '', params = []) {
   const rows = await q(`${MENTORSHIP_SQL} ${where} ORDER BY (m.status = 'active') DESC, m.started_at DESC`, [userId, ...params])
   const otherIds = rows.map((m) => (m.student_id === userId ? m.mentor_id : m.student_id))
-  const others = new Map((otherIds.length ? await getUsers('WHERE u.id = ANY($1)', [otherIds]) : []).map((u) => [u.id, publicUser(u)]))
+  const relation = await relationsOf(userId, { contacts: true })
+  const others = new Map((otherIds.length ? await getUsers('WHERE u.id = ANY($1)', [otherIds]) : []).map((u) => [u.id, viewOf(u, relation(u.id))]))
   return rows.map(({ student_id: sid, mentor_id: mid, unreadAccepted, unreadMessages, unreadSessions, reviewed, ...m }) => {
     const myRole = sid === userId ? 'student' : 'mentor'
     const o = others.get(myRole === 'student' ? mid : sid) || {}
@@ -530,9 +615,14 @@ app.get('/api/posts', auth(), wrap(async (req, res) => {
     `SELECT p.id, p.title, p.body, p.category, p.created_at AS "createdAt", p.author_id AS "authorId", u.name AS author
      FROM forum_posts p JOIN users u ON u.id = p.author_id WHERE ($1 = '' OR p.category = $1) ORDER BY p.created_at DESC, p.id DESC`, [String(req.query.category || '')])
   const replies = posts.length ? await q(
-    `SELECT r.id, r.post_id AS "postId", r.body, r.created_at AS "createdAt", u.name AS author
+    `SELECT r.id, r.post_id AS "postId", r.body, r.created_at AS "createdAt", r.author_id AS "authorId", u.name AS author
      FROM forum_replies r JOIN users u ON u.id = r.author_id WHERE r.post_id = ANY($1) ORDER BY r.created_at, r.id`, [posts.map((p) => p.id)]) : []
-  res.json(posts.map((p) => ({ ...p, replies: replies.filter((r) => r.postId === p.id) })))
+  const relation = await relationsOf(req.user.id)
+  const ids = [...new Set([...posts.map((p) => p.authorId), ...replies.map((r) => r.authorId)])]
+  const people = new Map((ids.length ? await getUsers('WHERE u.id = ANY($1)', [ids]) : []).map((u) => [u.id, viewOf(u, relation(u.id))]))
+  const byline = (id) => { const v = people.get(id); return v ? { author: v.name, authorId: id } : { author: 'A member', authorId: null } }
+  res.json(posts.map(({ author, authorId, ...p }) => ({ ...p, ...byline(authorId),
+    replies: replies.filter((r) => r.postId === p.id).map(({ author: a, authorId: aid, ...r }) => ({ ...r, ...byline(aid) })) })))
 }))
 
 app.post('/api/posts', auth(), wrap(async (req, res) => {

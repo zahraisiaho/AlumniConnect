@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
-import { Avatar, PageTitle, Row, Tag, btnLine } from '../components/ui'
+import { Avatar, PageTitle, Row, Tag, btnLine, workLine, studyLine, LimitedNote } from '../components/ui'
 
 // Same order for the same student every time, but unrelated to any match score, so ratings are not biased by ranking.
 function shuffled(list, seed) {
@@ -37,9 +37,9 @@ export default function Rate() {
             <div className="flex items-start gap-3">
               <Avatar name={m.name} />
               <div className="min-w-0 flex-1">
-                <div className="font-semibold">{m.name}</div>
-                <div className="text-sm">{m.jobTitle}{m.company && ` at ${m.company}`}</div>
-                <div className="text-sm text-muted">{m.university}, {m.course}</div>
+                <div className="font-semibold">{m.name}<LimitedNote p={m} /></div>
+                {workLine(m) && <div className="text-sm">{workLine(m)}</div>}
+                <div className="text-sm text-muted">{studyLine({ ...m, gradYear: null })}</div>
                 {m.bio && <p className="mt-2 text-sm">{m.bio}</p>}
                 <div className="mt-2 flex flex-wrap gap-1">{[...(m.skills || []), ...(m.interests || [])].map((s) => <Tag key={s}>{s}</Tag>)}</div>
               </div>

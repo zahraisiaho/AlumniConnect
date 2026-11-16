@@ -98,12 +98,12 @@ export default function Admin() {
       </div>
       <div className="overflow-x-auto bg-white">
         <table className="w-full text-left text-sm">
-          <thead className="bg-ice-deep"><tr>{['Name', 'Email', 'Role', 'University', 'Mentor', 'Joined', ''].map((h) => <th key={h} className="px-3 py-2 font-semibold">{h}</th>)}</tr></thead>
+          <thead className="bg-ice-deep"><tr>{['Name', 'Email', 'Role', 'University', 'Mentor', 'Visibility', 'Joined', ''].map((h) => <th key={h} className="px-3 py-2 font-semibold">{h}</th>)}</tr></thead>
           <tbody>
             {shown.map((u) => (
               <tr key={u.id} className="border-t border-ice-deep">
                 <td className="px-3 py-2">{u.name}</td><td className="px-3 py-2">{u.email}</td><td className="px-3 py-2 capitalize">{u.role}</td>
-                <td className="px-3 py-2">{u.university || 'None'}</td><td className="px-3 py-2">{u.mentor ? 'Yes' : 'No'}</td>
+                <td className="px-3 py-2">{u.university || 'None'}</td><td className="px-3 py-2">{u.mentor ? 'Yes' : 'No'}</td><td className="px-3 py-2 capitalize">{u.visibility || 'limited'}</td>
                 <td className="px-3 py-2">{new Date(u.createdAt).toLocaleDateString()}</td>
                 <td className="whitespace-nowrap px-3 py-2">
                   <button className={`${btnLine} mr-2`} onClick={() => { setErr(''); setMsg(''); setEdit(toForm(u)); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Edit</button>

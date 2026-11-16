@@ -39,3 +39,13 @@ export function loadModel(path) {
   } catch (e) { if (e.code !== 'ENOENT') console.warn(`Could not read model: ${e.message}`) }
   return null
 }
+
+// Human-readable name of the matching method, shown with the matches. A model trained by ml/train.py on
+// ml/synthetic_pairs.csv has data_source 'synthetic' in weights.json, and the label says so.
+export function methodLabel(mode, model = null) {
+  if (mode === 'hybrid-learned') {
+    if (model?.data_source === 'synthetic') return 'Learned model (trained on synthetic data)'
+    return model?.data_source ? 'Learned model (trained on tester ratings)' : 'Learned model'
+  }
+  return mode === 'rules+meaning' ? 'Rules + text meaning' : 'Rules'
+}

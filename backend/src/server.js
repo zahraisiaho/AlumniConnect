@@ -2,7 +2,7 @@ import 'dotenv/config'
 import { clerkMiddleware, clerkClient, getAuth } from '@clerk/express'
 import { createApp } from './app.js'
 import { autoEmbedder } from './embeddings.js'
-import { loadModel } from './hybrid.js'
+import { loadModel, methodLabel } from './hybrid.js'
 import { semanticOn } from './matching.js'
 
 if (!process.env.DATABASE_URL) { console.error('Set DATABASE_URL in backend/.env'); process.exit(1) }
@@ -39,7 +39,7 @@ await embedder.embed('warm up')
 console.log(`Text meaning: ${provider}${provider === 'lexical-hash-256' ? ' (fallback)' : ''}`)
 const model = loadModel(new URL('../model/weights.json', import.meta.url))
 const semantic = semanticOn()
-console.log(model ? `Matching: learned model loaded (${model.trained_on?.pairs ?? '?'} rated pairs)`
+console.log(model ? `Matching: ${methodLabel('hybrid-learned', model)}, loaded (${model.trained_on?.pairs ?? '?'} ${model.data_source === 'synthetic' ? 'synthetic' : 'rated'} pairs)`
   : semantic ? 'Matching: rules + text meaning (no model/weights.json yet)' : 'Matching: rule-based (MATCH_SEMANTIC=off)')
 const app = createApp({ identity, deleteIdentity, embedder, model, semantic, pre: [clerkMiddleware()] })
 const port = Number(process.env.PORT) || 4000

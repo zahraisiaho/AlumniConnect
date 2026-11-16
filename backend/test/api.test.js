@@ -15,12 +15,15 @@ const identity = async (req) => {
   return { clerkId, getEmail: async () => req.headers['x-test-email'], getName: async () => 'Test Person' }
 }
 const deleted = []
-let server, BASE
+let server, BASE, demoVisibility = []
 const stamp = Date.now()
 const DEMO = [['student@demo.com', 'test_student'], ['alumni@demo.com', 'test_brian'], ['grace@demo.com', 'test_grace'], ['admin@demo.com', 'test_admin']]
 
 before(async () => {
   for (const [email, cid] of DEMO) await q('UPDATE users SET clerk_user_id = $1 WHERE email = $2', [cid, email])
+  // The seeded demo profiles are fictional: the older tests read them in full, so they are visible to members during the run.
+  demoVisibility = await q("SELECT id, visibility FROM users WHERE email LIKE '%@demo.com'")
+  await q("UPDATE users SET visibility = 'members' WHERE email LIKE '%@demo.com'")   // restored in after()
   server = createApp({ identity, deleteIdentity: async (id) => { deleted.push(id) } }).listen(0)
   BASE = `http://localhost:${server.address().port}/api`
 })
@@ -32,10 +35,15 @@ after(async () => {   // remove everything the tests created and unlink the demo
   await q("DELETE FROM skills WHERE name LIKE 'Test skill %'")
   await q("DELETE FROM fields_of_study WHERE name LIKE 'Test field %'")
   await q("UPDATE users SET clerk_user_id = NULL WHERE clerk_user_id LIKE 'test_%'")
+  for (const d of demoVisibility) await q('UPDATE users SET visibility = $1 WHERE id = $2', [d.visibility, d.id])
   await new Promise((r) => server.close(r)); await pool.end()
 })
 
-const call = async (path, { method = 'GET', as, body, base = BASE } = {}) => {
+// Profiles made by the older tests agree to the privacy notice and are visible to members, so those tests keep testing
+// what they were written for. The privacy tests (TC-049 onwards) set consent and visibility themselves.
+const withDefaults = (path, method, body) => (method === 'POST' && path === '/profile' && body && typeof body === 'object' ? { consent: true, visibility: 'members', ...body } : body)
+const call = async (path, { method = 'GET', as, body: raw, base = BASE } = {}) => {
+  const body = withDefaults(path, method, raw)
   const headers = { 'Content-Type': 'application/json', ...(as && { 'x-test-clerk-id': as.id, 'x-test-email': as.email || '' }) }
   const r = await fetch(base + path, { method, headers, body: body && JSON.stringify(body) })
   return { status: r.status, data: await r.json().catch(() => ({})) }
@@ -564,4 +572,227 @@ test('TC-044 admin summary shows mentorship counts and average rating, never mes
   assert.ok(s.data.activeMentorships >= 1)
   assert.ok(!JSON.stringify(s.data).includes(secret) && !JSON.stringify((await call('/admin/users', { as: admin })).data).includes(secret))
   assert.equal((await call('/admin/summary', { as: student.who })).status, 403)
+})
+
+// ---------- learned model trained on synthetic data ----------
+test('TC-045 matching method label: says "trained on synthetic data" for a synthetic model, and is students only', async () => {
+  const { s } = await hybridSetup()
+  const label = (opts) => withApp(opts, async (base) => (await call('/matching-method', { as: s, base })).data)
+  assert.deepEqual(await label({}), { method: 'rules', label: 'Rules', dataSource: null })
+  assert.deepEqual(await label({ semantic: true }), { method: 'rules+meaning', label: 'Rules + text meaning', dataSource: null })
+  const synthetic = { ...strongSimilarity, data_source: 'synthetic' }
+  assert.deepEqual(await label({ model: synthetic, semantic: true }), { method: 'hybrid-learned', label: 'Learned model (trained on synthetic data)', dataSource: 'synthetic' })
+  // the label never changes the ranking itself
+  const a = await withApp({ model: synthetic }, async (base) => (await call('/matches', { as: s, base })).data)
+  const b = await withApp({ model: strongSimilarity }, async (base) => (await call('/matches', { as: s, base })).data)
+  assert.deepEqual(a, b)
+  assert.equal((await call('/matching-method', { as: null })).status, 401)
+  const mentor = (await newMentor('Test Label Mentor')).who
+  assert.equal((await call('/matching-method', { as: mentor })).status, 403)
+})
+
+// ---------- names, saving My Profile, and requests through a proxy (as with the Vite /api proxy and a tunnel) ----------
+test('TC-046 names: spaces, hyphens, apostrophes and accented letters are kept; only trimmed and length-checked', async () => {
+  for (const name of ["Zoë-Anne O'Neill", 'José Müller', 'Ngũgĩ wa Thiong’o', 'Mary Jane Wanjiru-Kamau']) {
+    const who = fresh(); const r = await call('/profile', { method: 'POST', as: who, body: profile({ name: `  ${name}  ` }) })
+    assert.equal(r.status, 201, name); assert.equal(r.data.name, name)
+    assert.equal((await call('/me', { as: who })).data.name, name)
+  }
+  const who = fresh(); await call('/profile', { method: 'POST', as: who, body: profile() })
+  let r = await call('/me', { method: 'PUT', as: who, body: { name: ' Åsa Øberg-Ñúñez ' } }); assert.equal(r.status, 200); assert.equal(r.data.name, 'Åsa Øberg-Ñúñez')
+  r = await call('/me', { method: 'PUT', as: who, body: { name: '   ' } }); assert.equal(r.status, 400); assert.equal(r.data.error, 'Name is required.')
+  r = await call('/me', { method: 'PUT', as: who, body: { name: 'é'.repeat(101) } }); assert.equal(r.status, 400); assert.match(r.data.error, /100 characters or fewer/)
+  r = await call('/me', { method: 'PUT', as: who, body: { name: 'é'.repeat(100) } }); assert.equal(r.status, 200)
+  assert.equal((await call('/profile', { method: 'POST', as: fresh(), body: profile({ name: 'x'.repeat(101) }) })).status, 400)
+  assert.equal((await call('/profile', { method: 'POST', as: fresh(), body: profile({ name: 42 }) })).status, 400)
+  const target = (await call('/me', { as: who })).data   // the admin edit form uses the same rule
+  r = await call(`/admin/users/${target.id}`, { method: 'PUT', as: admin, body: { name: "D'Arcy Ó Briain" } }); assert.equal(r.status, 200); assert.equal(r.data.name, "D'Arcy Ó Briain")
+  assert.equal((await call(`/admin/users/${target.id}`, { method: 'PUT', as: admin, body: { name: '' } })).status, 400)
+})
+
+test('TC-047 My Profile save: a mentor whose graduation year makes them a student saves with mentor off; mentor on is refused clearly', async () => {
+  const who = fresh()
+  const me = (await call('/profile', { method: 'POST', as: who, body: profile({ name: 'Test Year Change', gradYear: Y - 6, mentor: true }) })).data
+  assert.equal(me.role, 'alumnus'); assert.equal(me.mentor, true)
+  const form = { name: me.name, bio: me.bio, university: me.university, course: me.course, fieldOfStudy: me.fieldOfStudy, industry: me.industry,
+    jobTitle: me.jobTitle, company: me.company, skills: [...me.skills, 'Test skill ' + stamp + ' typed'], interests: me.interests, availability: me.availability }
+  let r = await call('/me', { method: 'PUT', as: who, body: { ...form, gradYear: Y + 1, mentor: true } })
+  assert.equal(r.status, 400); assert.equal(r.data.error, 'Only alumni can be mentors.')
+  r = await call('/me', { method: 'PUT', as: who, body: { ...form, gradYear: Y + 1, mentor: false } })   // what the page now sends
+  assert.equal(r.status, 200); assert.equal(r.data.role, 'student'); assert.equal(r.data.mentor, false)
+  assert.ok(r.data.skills.includes('Test skill ' + stamp + ' typed'))
+})
+
+test('TC-048 CV upload and profile save work through a forwarding proxy with a tunnel hostname', async () => {
+  const { createServer, request } = await import('node:http')
+  const target = new URL(BASE)
+  const proxy = createServer((req, res) => {   // like Vite's /api proxy: streams the body and rewrites Host (changeOrigin)
+    const up = request({ host: target.hostname, port: target.port, path: req.url, method: req.method, headers: { ...req.headers, host: target.host } },
+      (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res) })
+    up.on('error', () => { res.writeHead(502); res.end() }); req.pipe(up)
+  }).listen(0)
+  try {
+    const base = `http://localhost:${proxy.address().port}/api`
+    const tunnelHeaders = (as) => ({ 'x-forwarded-host': 'quiet-river-1234.trycloudflare.com', origin: 'https://quiet-river-1234.trycloudflare.com', 'x-test-clerk-id': as.id, 'x-test-email': as.email })
+    const who = fresh(); await call('/profile', { method: 'POST', as: who, body: profile({ name: 'Test Through Tunnel' }) })
+    const fd = new FormData(); fd.append('cv', new Blob([fixture('cv_law.docx')]), 'cv_law.docx')
+    let r = await fetch(`${base}/profile/parse-cv`, { method: 'POST', headers: tunnelHeaders(who), body: fd })
+    assert.equal(r.status, 200); assert.equal((await r.json()).suggestions.fieldOfStudy, 'Law')
+    const big = new FormData(); big.append('cv', new Blob([Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(5 * 1024 * 1024 + 10)])]), 'big.pdf')
+    r = await fetch(`${base}/profile/parse-cv`, { method: 'POST', headers: tunnelHeaders(who), body: big })
+    assert.equal(r.status, 413); assert.match((await r.json()).error, /5 MB/)
+    r = await fetch(`${base}/me`, { method: 'PUT', headers: { ...tunnelHeaders(who), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Zoë Through Tunnel' }) })
+    assert.equal(r.status, 200); assert.equal((await r.json()).name, 'Zoë Through Tunnel')
+  } finally { await new Promise((r) => proxy.close(r)) }
+})
+
+// ---------- privacy: visibility, consent, download my data, delete my account ----------
+const LIMITED_KEYS = ['fieldOfStudy', 'id', 'mentor', 'name', 'profile', 'role', 'skills', 'university']
+async function privacyCast() {
+  const tag = `${stamp}${n}`
+  const mk = async (who, name, visibility, extra = {}) => (await call('/profile', { method: 'POST', as: who,
+    body: profile({ name, visibility, gradYear: Y - 5, mentor: true, industry: 'Legal Services', skills: ['Legal research'], interests: ['Career guidance'],
+      jobTitle: 'Advocate', company: `Firm ${tag} ${visibility}`, course: `LLB ${tag}`, bio: 'I help law students prepare for practice and the bar exam.', ...extra }) })).data
+  const who = { m: fresh(), l: fresh(), h: fresh(), s: fresh(), s2: fresh() }
+  const people = {
+    m: await mk(who.m, `Test Wanjiru Visible${tag}`, 'members'),
+    l: await mk(who.l, `Test Achieng Limited${tag}`, 'limited'),
+    h: await mk(who.h, `Test Kamau Hidden${tag}`, 'hidden'),
+  }
+  for (const k of ['s', 's2']) await call('/profile', { method: 'POST', as: who[k], body: profile({ name: `Test Seeker ${k}${tag}`, skills: ['Legal research'], interests: ['Career guidance'], industry: 'Legal Services' }) })
+  return { who, people, tag }
+}
+
+test('TC-049 sign-up needs consent to the privacy notice; visibility defaults to limited and is validated', async () => {
+  let r = await call('/profile', { method: 'POST', as: fresh(), body: profile({ consent: undefined }) })
+  assert.equal(r.status, 400); assert.match(r.data.error, /privacy notice/)
+  r = await call('/profile', { method: 'POST', as: fresh(), body: profile({ consent: 'yes' }) }); assert.equal(r.status, 400)
+  r = await call('/profile', { method: 'POST', as: fresh(), body: profile({ visibility: 'public' }) }); assert.equal(r.status, 400)
+  const who = fresh()
+  r = await call('/profile', { method: 'POST', as: who, body: profile({ visibility: undefined }) })
+  assert.equal(r.status, 201); assert.equal(r.data.visibility, 'limited'); assert.ok(r.data.privacyConsentAt); assert.ok(r.data.privacyNoticeVersion)
+  r = await call('/me', { method: 'PUT', as: who, body: { visibility: 'hidden' } }); assert.equal(r.status, 200); assert.equal(r.data.visibility, 'hidden')
+  assert.equal((await call('/me', { method: 'PUT', as: who, body: { visibility: 'everyone' } })).status, 400)
+})
+
+test('TC-050 directory: members in full, limited as first name/field/university/skills, hidden not listed; search cannot reveal hidden details', async () => {
+  const { who, people: p, tag } = await privacyCast()
+  const list = (qs = '') => call(`/alumni${qs}`, { as: who.s }).then((r) => r.data)
+  const all = await list()
+  const m = all.find((x) => x.id === p.m.id), l = all.find((x) => x.id === p.l.id)
+  assert.ok(m && m.company === `Firm ${tag} members` && m.name === p.m.name && m.profile === 'full')
+  assert.deepEqual(Object.keys(l).sort(), LIMITED_KEYS)
+  assert.equal(l.name, 'Test'); assert.equal(l.university, p.l.university); assert.deepEqual(l.skills, ['Legal research'])
+  assert.ok(!all.some((x) => x.id === p.h.id))
+  assert.ok(!JSON.stringify(all).includes('@'))   // no email address of anyone
+  assert.ok(!(await list(`?q=${encodeURIComponent(`Firm ${tag} limited`)}`)).some((x) => x.id === p.l.id))   // employer is hidden
+  assert.ok(!(await list(`?q=Limited${tag}`)).some((x) => x.id === p.l.id))                                   // surname is hidden
+  assert.ok(!(await list(`?q=Hidden${tag}`)).length)
+  assert.ok((await list(`?q=${encodeURIComponent(`Firm ${tag} members`)}`)).some((x) => x.id === p.m.id))
+  const byIndustry = await list('?industry=Legal%20Services')
+  assert.ok(byIndustry.some((x) => x.id === p.m.id) && !byIndustry.some((x) => x.id === p.l.id || x.id === p.h.id))
+  assert.ok((await list(`?university=${encodeURIComponent(p.l.university)}`)).some((x) => x.id === p.l.id))
+})
+
+test('TC-051 matches and the rating list: hidden mentors never appear or can be requested; limited ones show limited details and reasons', async () => {
+  const { who, people: p, tag } = await privacyCast()
+  const matches = (await call('/matches', { as: who.s })).data
+  const m = matches.find((x) => x.mentor.id === p.m.id), l = matches.find((x) => x.mentor.id === p.l.id)
+  assert.ok(m && l); assert.ok(!matches.some((x) => x.mentor.id === p.h.id))
+  assert.equal(m.mentor.company, `Firm ${tag} members`)
+  assert.deepEqual(Object.keys(l.mentor).sort(), LIMITED_KEYS)
+  assert.ok(m.reasons.some((r) => r.startsWith('Works in')) && m.reasons.some((r) => r.startsWith('Shared mentorship interests')))
+  assert.ok(!l.reasons.some((r) => /^(Works in|Shared mentorship interests|Both available)/.test(r)))
+  assert.ok(l.reasons.includes('Other details in their profile also match')); assert.ok(l.reasons.some((r) => r.startsWith('Same field of study')))
+  assert.equal(l.score, m.score)   // same attributes, same score: visibility changes what is shown, not the ranking
+  // the rating list shows up to 30 mentors: every entry must match that person's own visibility, and no hidden mentor appears
+  const rate = (await call('/rate/candidates', { as: who.s })).data
+  assert.ok(rate.length > 0); assert.ok(!rate.some((x) => x.id === p.h.id))
+  const vis = new Map((await q('SELECT id, visibility FROM users WHERE id = ANY($1)', [rate.map((x) => x.id)])).map((r) => [r.id, r.visibility]))
+  for (const x of rate) {
+    assert.notEqual(vis.get(x.id), 'hidden')
+    if (vis.get(x.id) === 'limited') assert.deepEqual(Object.keys(x).sort(), [...LIMITED_KEYS, 'rating'].sort())
+    else assert.equal(x.profile, 'full')
+    assert.ok(!('email' in x))
+  }
+  assert.equal((await call('/requests', { method: 'POST', as: who.s, body: { mentorId: p.h.id } })).status, 404)
+  assert.equal((await call('/rate', { method: 'POST', as: who.s, body: { mentorId: p.h.id, helpful: true } })).status, 404)
+  assert.equal((await call('/requests', { method: 'POST', as: who.s, body: { mentorId: p.l.id } })).status, 201)   // limited mentors can be asked
+  const incoming = (await call('/requests/incoming', { as: who.l })).data
+  assert.equal(incoming.length, 1); assert.equal(incoming[0].from.name, `Test Seeker s${tag}`)   // the requester chose members visibility
+})
+
+test('TC-052 a hidden user is not exposed anywhere, except to the person they are in an active mentorship with', async () => {
+  const { who, people: p, tag } = await privacyCast()
+  // the student starts a mentorship while the mentor is still visible, then the mentor hides their profile
+  await call('/me', { method: 'PUT', as: who.h, body: { visibility: 'members' } })
+  await call('/requests', { method: 'POST', as: who.s, body: { mentorId: p.h.id } })
+  const req = (await call('/requests/incoming', { as: who.h })).data[0]
+  const { mentorshipId } = (await call(`/requests/${req.id}`, { method: 'PATCH', as: who.h, body: { status: 'accepted' } })).data
+  await call('/me', { method: 'PUT', as: who.h, body: { visibility: 'hidden' } })
+  await call('/posts', { method: 'POST', as: who.h, body: { title: `Test post hidden ${tag}`, body: 'Hello from a hidden member', category: 'General' } })
+
+  // a stranger sees nothing that identifies them: not in the directory, matches, ratings, mentorships or as a forum author
+  const stranger = who.s2
+  const seen = [await call('/alumni', { as: stranger }), await call('/alumni?q=Kamau', { as: stranger }), await call('/matches', { as: stranger }),
+    await call('/rate/candidates', { as: stranger }), await call('/posts', { as: stranger }), await call('/mentorships', { as: stranger })].map((r) => r.data)
+  for (const d of seen) {
+    const j = JSON.stringify(d)
+    assert.ok(!j.includes(`Hidden${tag}`) && !j.includes(p.h.email) && !j.includes(`Firm ${tag} hidden`) && !j.includes(`"id":${p.h.id},`), j.slice(0, 200))
+  }
+  const post = seen[4].find((x) => x.title === `Test post hidden ${tag}`)
+  assert.equal(post.author, 'A member'); assert.equal(post.authorId, null)
+
+  // the active mentee sees them in full, in My mentorships, in the directory and as a forum author
+  const mine = (await call('/mentorships', { as: who.s })).data.find((x) => x.id === mentorshipId)
+  assert.equal(mine.other.name, p.h.name); assert.equal(mine.other.company, `Firm ${tag} hidden`)
+  assert.ok((await call('/alumni', { as: who.s })).data.some((x) => x.id === p.h.id && x.profile === 'full'))
+  assert.equal((await call('/posts', { as: who.s })).data.find((x) => x.title === `Test post hidden ${tag}`).author, p.h.name)
+  // once the mentorship ends, the former mentee keeps only the first name, and the directory no longer lists them
+  await call(`/mentorships/${mentorshipId}/end`, { method: 'POST', as: who.s })
+  const after = (await call('/mentorships', { as: who.s })).data.find((x) => x.id === mentorshipId)
+  assert.equal(after.other.name, 'Test'); assert.equal(after.other.company, undefined)
+  assert.ok(!(await call('/alumni', { as: who.s })).data.some((x) => x.id === p.h.id))
+})
+
+test('TC-053 download my data: only the data of the person asking, as a JSON attachment', async () => {
+  const { who, people: p, tag } = await privacyCast()
+  await call('/requests', { method: 'POST', as: who.s, body: { mentorId: p.m.id } })
+  const req = (await call('/requests/incoming', { as: who.m })).data[0]
+  const { mentorshipId } = (await call(`/requests/${req.id}`, { method: 'PATCH', as: who.m, body: { status: 'accepted' } })).data
+  await call(`/mentorships/${mentorshipId}/messages`, { method: 'POST', as: who.s, body: { body: `student says hi ${tag}` } })
+  await call(`/mentorships/${mentorshipId}/messages`, { method: 'POST', as: who.m, body: { body: `mentor private reply ${tag}` } })
+  await call('/rate', { method: 'POST', as: who.s, body: { mentorId: p.l.id, helpful: true } })
+  const r = await fetch(`${BASE}/me/export`, { headers: { 'x-test-clerk-id': who.s.id, 'x-test-email': who.s.email } })
+  assert.equal(r.status, 200); assert.match(r.headers.get('content-disposition'), /attachment; filename="alumniconnect-my-data.json"/)
+  const data = await r.json(); const j = JSON.stringify(data)
+  assert.equal(data.profile.email, who.s.email); assert.equal(data.profile.name, `Test Seeker s${tag}`)
+  assert.deepEqual(data.messagesYouSent.map((m) => m.body), [`student says hi ${tag}`])
+  assert.deepEqual(data.mentorRatingsYouGave.map((x) => [x.mentorId, x.helpful]), [[p.l.id, true]])
+  assert.equal(data.mentorships[0].otherPersonId, p.m.id); assert.equal(data.mentorshipRequestsSent[0].mentorId, p.m.id)
+  for (const other of [`mentor private reply ${tag}`, p.m.name, who.m.email, `Firm ${tag}`, who.s2.email]) assert.ok(!j.includes(other), other)
+  assert.equal((await call('/me/export')).status, 401)
+})
+
+test('TC-054 delete my account: needs confirmation, removes the sign-in account and everything linked; others are unaffected', async () => {
+  const { who, people: p, tag } = await privacyCast()
+  await call('/requests', { method: 'POST', as: who.s, body: { mentorId: p.m.id } })
+  const req = (await call('/requests/incoming', { as: who.m })).data[0]
+  const { mentorshipId } = (await call(`/requests/${req.id}`, { method: 'PATCH', as: who.m, body: { status: 'accepted' } })).data
+  await call(`/mentorships/${mentorshipId}/messages`, { method: 'POST', as: who.s, body: { body: `bye ${tag}` } })
+  await call('/posts', { method: 'POST', as: who.s, body: { title: `Test post delete ${tag}`, body: 'soon gone', category: 'General' } })
+  const me = (await call('/me', { as: who.s })).data
+  assert.equal((await call('/me', { method: 'DELETE', as: who.s })).status, 400)
+  assert.equal((await call('/me', { method: 'DELETE', as: who.s, body: { confirm: 'yes' } })).status, 400)
+  assert.equal((await call('/me', { as: who.s })).status, 200)   // nothing deleted yet
+  const r = await call('/me', { method: 'DELETE', as: who.s, body: { confirm: 'DELETE' } })
+  assert.equal(r.status, 200); assert.ok(deleted.includes(who.s.id))
+  assert.equal((await call('/me', { as: who.s })).data.code, 'NO_PROFILE')
+  for (const [sql, args] of [['SELECT 1 FROM users WHERE id = $1', [me.id]], ['SELECT 1 FROM messages WHERE sender_id = $1', [me.id]],
+    ['SELECT 1 FROM forum_posts WHERE author_id = $1', [me.id]], ['SELECT 1 FROM mentorship_matches WHERE student_id = $1', [me.id]],
+    ['SELECT 1 FROM mentorship_requests WHERE student_id = $1', [me.id]], ['SELECT 1 FROM user_skills WHERE user_id = $1', [me.id]]]) assert.equal((await q(sql, args)).length, 0, sql)
+  assert.equal((await call('/me', { as: who.m })).status, 200)   // the mentor's account is untouched
+  assert.equal((await call('/me', { method: 'DELETE', body: { confirm: 'DELETE' } })).status, 401)
+  const admins = (await q("SELECT count(*)::int AS n FROM users WHERE role = 'admin'"))[0].n
+  if (admins === 1) assert.equal((await call('/me', { method: 'DELETE', as: admin, body: { confirm: 'DELETE' } })).status, 409)   // never the last admin
 })

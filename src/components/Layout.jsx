@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { Avatar } from './ui'
+import { PrivacyFooter } from './Privacy'
 
 const nav = [['/directory', 'Directory'], ['/mentorship', 'Mentorship'], ['/mentorships', 'My mentorships'], ['/forum', 'Forum'], ['/updates', 'Updates'], ['/profile', 'My profile']]
 
 export default function Layout() {
   const { user, logout } = useAuth()
-  const go = useNavigate()
-  const out = async () => { await logout(); go('/login') }
+  const out = () => logout().catch(() => window.location.assign('/login'))
   const { pathname } = useLocation()
   // Unread items (accepted requests, messages, session proposals), shown as a badge on My mentorships.
   const [unread, setUnread] = useState(0)
@@ -52,6 +52,7 @@ export default function Layout() {
           {items.map(([to, l]) => <NavLink key={to} to={to} className={top}>{label(to, l)}</NavLink>)}
         </nav>
         <main className="mx-auto max-w-4xl p-4 md:p-8"><Outlet /></main>
+        <PrivacyFooter />
       </div>
     </div>
   )

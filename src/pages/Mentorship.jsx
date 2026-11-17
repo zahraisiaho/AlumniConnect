@@ -46,7 +46,7 @@ export default function Mentorship() {
                 <div className="flex-1"><div className="font-semibold">{r.from.name}</div><div className="text-sm text-muted">{[r.from.university, r.from.course || r.from.fieldOfStudy].filter(Boolean).join(', ')}</div></div>
                 {r.status === 'pending'
                   ? <><button className={btnGold} onClick={() => answer(r.id, 'accepted')}>Accept</button><button className={btnLine} onClick={() => answer(r.id, 'declined')}>Decline</button></>
-                  : <span className="text-sm capitalize text-muted">{r.status}</span>}
+                  : <><span className="text-sm capitalize text-muted">{r.status}</span>{r.status === 'accepted' && <Link to="/mentorships" className={btnLine}>Open</Link>}</>}
               </div>
             </Row>
           ))}
@@ -61,6 +61,9 @@ export default function Mentorship() {
       <PageTitle title="Your mentor matches" sub="Ranked by field of study, skills, interests, industry and availability. Every score shows its reasons." />
       {!user.fieldOfStudy || !user.skills?.length || !user.interests?.length
         ? <p className="mb-4 border-l-4 border-gold bg-white p-3 text-sm">Add your field, skills and interests in <Link to="/profile" className="font-semibold underline">My profile</Link> for better matches.</p> : null}
+      {Object.values(sent).includes('accepted') && (
+        <p role="status" className="mb-4 border-l-4 border-navy bg-white p-3 text-sm">A mentor accepted your request. Open <Link to="/mentorships" className="font-semibold underline">My mentorships</Link> to say hello and plan a session.</p>
+      )}
       <div className="space-y-2">
         {matches.map(({ mentor: m, score, reasons, method }) => (
           <Row key={m.id}>
@@ -72,7 +75,11 @@ export default function Mentorship() {
                 <div className="my-2 h-2 bg-ice-deep"><div className="h-2 bg-gold" style={{ width: `${score}%` }} /></div>
                 <ul className="list-disc pl-5 text-sm text-muted">{reasons.map((r) => <li key={r}>{r}</li>)}</ul>
               </div>
-              {sent[m.id] ? <span className="text-sm capitalize text-muted">{sent[m.id]}</span> : <button className={btnLine} onClick={() => ask(m.id)}>Request</button>}
+              {sent[m.id] === 'accepted'
+                ? <Link to="/mentorships" className={btnGold}>Open mentorship</Link>
+                : sent[m.id]
+                  ? <span className="text-sm capitalize text-muted">{sent[m.id]}</span>
+                  : <button className={btnLine} onClick={() => ask(m.id)}>Request</button>}
             </div>
           </Row>
         ))}

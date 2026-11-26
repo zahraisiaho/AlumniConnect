@@ -18,15 +18,15 @@ matcher: a transparent rule-based score, plus a learned model (logistic regressi
 - Profiles with university, field of study, skills, interests, industry and availability. A CV (PDF or Word) can fill in the form.
 - Role from graduation year: a student whose graduation year has passed becomes an alumnus automatically.
 - Alumni directory with search and filters across universities.
-- Mentor matching for students. Every score shows its reasons. Three modes:
-  learned model (if `backend/model/weights.json` is present), rules + text meaning (default without weights), or rules only.
+- Mentor matching for students: one ranked list, every score (0 to 100) shows its reasons. An administrator chooses the
+  mode on the Admin page: learned model (default), rules + text meaning, or rules only. If what a mode needs cannot load,
+  matching falls back to the next one.
 - Mentorship requests. Mentors accept or decline them (at most 5 active mentees).
 - Active mentorships with chat, mentoring sessions and a review when the mentorship ends.
 - Forum and institutional updates.
-- "Improve matching" page where students rate suggested mentors. The ratings can be exported to train the model.
 - Privacy (Kenya Data Protection Act, 2019): a visibility setting (members / limited / hidden), a privacy notice and consent at sign-up,
-  download my data, and delete my account.
-- Administration: manage users and roles, and export training data.
+  and delete my account.
+- Administration: manage users and roles, and choose the matching mode.
 
 ### Demo data
 
@@ -138,7 +138,7 @@ Production build of the interface: `npm run build` (output in `dist/`), then `np
 
 ### Automated tests (backend)
 
-`npm test` in `backend/` runs **90 automated tests**: unit tests (names, privacy, matching, roles, hybrid model, CV parsing)
+`npm test` in `backend/` runs **94 automated tests**: unit tests (names, privacy, matching, roles, hybrid model, CV parsing)
 and API integration tests. The API tests replace Clerk with a test identity, so no Clerk keys are needed.
 `npm run test:unit` runs only the unit tests, without a database.
 

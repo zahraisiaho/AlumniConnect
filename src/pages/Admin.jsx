@@ -5,6 +5,9 @@ import { useAuth } from '../context/AuthContext'
 import { PageTitle, Row, Field, input, btn, btnLine } from '../components/ui'
 import ProfileFields, { toForm, fromForm } from '../components/ProfileFields'
 
+// Matching modes (backend/src/app.js, MATCHING_MODES), in fallback order.
+const MODE_LABELS = { 'hybrid-learned': 'Learned model', 'rules+meaning': 'Rules + text meaning', rules: 'Rules only' }
+
 export default function Admin() {
   const { user } = useAuth()
   const [s, setS] = useState(null)
@@ -15,7 +18,11 @@ export default function Admin() {
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const load = () => Promise.all([api.adminSummary(), api.adminUsers()]).then(([a, b]) => { setS(a); setUsers(b) }).catch((e) => setErr(e.message))
+  const [settings, setSettings] = useState(null)   // { matchingMode, activeMode }
+  const [mode, setMode] = useState('')
+
+  const load = () => Promise.all([api.adminSummary(), api.adminUsers(), api.adminSettings()])
+    .then(([a, b, c]) => { setS(a); setUsers(b); setSettings(c); setMode(c.matchingMode) }).catch((e) => setErr(e.message))
   useEffect(() => { if (user.role === 'admin') load() }, [user.role]) // eslint-disable-line
 
   if (user.role !== 'admin') return <Navigate to="/directory" replace />
@@ -32,13 +39,10 @@ export default function Admin() {
       setMsg(`Saved changes for ${edit.name}.`); setEdit(null); await load()
     } catch (x) { setErr(x.message) } finally { setBusy(false) }
   }
-  const exportCsv = async () => {
-    setErr(''); setMsg('')
-    try {
-      const url = URL.createObjectURL(await api.adminExportFeedback())
-      const a = document.createElement('a'); a.href = url; a.download = 'alumniconnect_feedback.csv'; a.click(); URL.revokeObjectURL(url)
-      setMsg('Exported the training data. It contains ids and numbers only.')
-    } catch (x) { setErr(x.message) }
+  const saveMode = async (e) => {
+    e.preventDefault(); setErr(''); setMsg('')
+    try { const c = await api.adminSetMatchingMode(mode); setSettings(c); setMode(c.matchingMode); setMsg(`Matching mode set to ${MODE_LABELS[c.matchingMode]}.`) }
+    catch (x) { setErr(x.message) }
   }
   const remove = async (u) => {
     if (!window.confirm(`Delete ${u.name} (${u.email})?\n\nThis removes their profile, mentorship requests and forum posts, and their sign-in account. It cannot be undone.`)) return
@@ -58,11 +62,21 @@ export default function Admin() {
         ))}
       </div>
 
-      <div className="mb-8 border-l-4 border-gold bg-white p-4">
-        <h2 className="text-xl font-bold">Matching model</h2>
-        <p className="mb-3 mt-1 text-sm text-muted">Students rate mentors on the Improve matching page. Export the ratings as a CSV (ids and numbers only) and train the model in the Colab notebook.</p>
-        <button className={btn} onClick={exportCsv}>Export training data (CSV)</button>
-      </div>
+      <form onSubmit={saveMode} className="mb-8 border-l-4 border-gold bg-white p-4">
+        <h2 className="text-xl font-bold">Matching</h2>
+        <p className="mb-3 mt-1 text-sm text-muted">How mentors are ranked for every student. Students see one ranked list and cannot change this.</p>
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Matching mode">
+            <select className={input} value={mode} disabled={!settings} onChange={(e) => setMode(e.target.value)}>
+              {Object.entries(MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}{value === 'hybrid-learned' ? ' (default)' : ''}</option>)}
+            </select>
+          </Field>
+          <button className={btn} disabled={!settings || mode === settings.matchingMode}>Save</button>
+        </div>
+        {settings && settings.activeMode !== settings.matchingMode && (
+          <p role="status" className="mt-3 text-sm">Running now: <strong>{MODE_LABELS[settings.activeMode]}</strong>, because what {MODE_LABELS[settings.matchingMode]} needs is not loaded on the server. It switches back automatically once it is.</p>
+        )}
+      </form>
 
       {edit && (
         <form onSubmit={save} className="mb-8 space-y-4 border-l-4 border-navy bg-white p-4">

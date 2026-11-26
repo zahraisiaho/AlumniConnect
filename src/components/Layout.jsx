@@ -23,7 +23,7 @@ export default function Layout() {
   }, [user.role, pathname])
   const badges = { '/mentorships': unread }
   const label = (to, l) => (badges[to] ? <>{l} <span className="ml-1 rounded-full bg-gold px-1.5 text-xs font-semibold text-navy" aria-label={`${badges[to]} unread`}>{badges[to]}</span></> : l)
-  const items = user.role === 'admin' ? [['/directory', 'Directory'], ['/forum', 'Forum'], ['/updates', 'Updates'], ['/admin', 'Admin'], ['/profile', 'My profile']] : user.role === 'student' ? [...nav, ['/rate', 'Improve matching']] : nav
+  const items = user.role === 'admin' ? [['/directory', 'Directory'], ['/forum', 'Forum'], ['/updates', 'Updates'], ['/admin', 'Admin'], ['/profile', 'My profile']] : nav
   const side = ({ isActive }) => `block border-l-4 px-4 py-2 text-sm font-medium ${isActive ? 'border-gold bg-navy-soft text-white' : 'border-transparent text-ice-deep hover:text-white'}`
   const top = ({ isActive }) => `whitespace-nowrap border-b-4 px-3 py-2 text-sm ${isActive ? 'border-gold text-white' : 'border-transparent text-ice-deep'}`
 

@@ -16,7 +16,6 @@ export default function Privacy() {
           <li><strong>Sign-in details:</strong> your email address and sign-in method, handled by our sign-in provider, Clerk. We never see your password.</li>
           <li><strong>Profile:</strong> name, university, course, field of study, graduation year, industry, job title and company (alumni only), skills, mentorship interests, availability, whether you are open to mentoring, and your bio.</li>
           <li><strong>Activity:</strong> mentorship requests, messages and session plans with your mentorship partner, reviews of ended mentorships, forum posts and replies.</li>
-          <li><strong>Ratings:</strong> if you take part in Improve matching, whether each suggested mentor seemed helpful.</li>
           <li><strong>Derived data:</strong> a list of numbers computed from your bio, used to compare goals. It cannot be turned back into your text.</li>
         </ul>
         <p>We do not collect anything else. Your graduation year is used to decide whether you join as a student or an alumnus.</p>
@@ -28,7 +27,6 @@ export default function Privacy() {
         <ul className="list-disc space-y-1 pl-5">
           <li>To suggest mentors who fit your field, skills, interests and goals.</li>
           <li>To run mentorships: requests, messages, sessions and reviews.</li>
-          <li>To improve matching. Ratings are exported for model training as ids and numbers only: no names, emails or text.</li>
         </ul>
         <p>We use your information because you agreed to it when you created your profile. You can withdraw that agreement at any time by deleting your account.</p>
 
@@ -51,7 +49,6 @@ export default function Privacy() {
         <p>Under the Data Protection Act, 2019 you have the right to be informed, to access your data, to correct it, to object to its use, and to have it deleted. In AlumniConnect you can:</p>
         <ul className="list-disc space-y-1 pl-5">
           <li>correct your details and change your visibility in <strong>My profile</strong>;</li>
-          <li>download everything we store about you with <strong>Download my data</strong> (a JSON file);</li>
           <li>delete your account and its data with <strong>Delete my account</strong>.</li>
         </ul>
         <p>For anything else, contact the AlumniConnect administrators. If you are not satisfied with our answer, you can complain to the Office of the Data Protection Commissioner (ODPC), Kenya.</p>

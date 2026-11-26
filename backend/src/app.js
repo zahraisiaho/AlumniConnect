@@ -1,11 +1,11 @@
 import express from 'express'
 import cors from 'cors'
 import { pool, q } from './db.js'
-import { scoreMatch, semanticBonus } from './matching.js'
+import { scoreMatch, semanticBonus, rankMatches } from './matching.js'
 import { roleFor } from './roles.js'
 import { createHash } from 'node:crypto'
 import { cosine, lexicalEmbedder } from './embeddings.js'
-import { FEATURES, pairFeatures, predict, methodLabel } from './hybrid.js'
+import { pairFeatures, predict, methodLabel } from './hybrid.js'
 import multer from 'multer'
 import { nameProblem, cleanName } from './names.js'
 import { viewOf, reasonsFor, visibilityProblem, DEFAULT_VISIBILITY, PRIVACY_NOTICE_VERSION } from './privacy.js'
@@ -14,14 +14,27 @@ import { CvError, MAX_CV_BYTES, extractText, kindOf, suggest } from './cv.js'
 // CVs are held in memory for the one request only: never written to disk, stored or logged.
 const cvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_CV_BYTES, files: 1, fields: 0 } }).single('cv')
 
+// Settings changed by administrators (for now only the matching mode). Created here at start-up, so no migration is needed.
+export const MATCHING_MODES = ['hybrid-learned', 'rules+meaning', 'rules']   // in fallback order
+export const DEFAULT_MATCHING_MODE = 'hybrid-learned'
+let settingsReady = null
+const settingsTable = () => (settingsReady ??= q(`CREATE TABLE IF NOT EXISTS app_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`).catch((e) => { settingsReady = null; throw e }))   // retried on the next request if the database was not reachable
+
 // embedder turns bio text into vectors; model (optional) is the learned ranking model.
-// Matching modes: a loaded model always wins ('hybrid-learned'); otherwise semantic=true adds a bonus for similar bios
-// ('rules+meaning'); otherwise rules only ('rules'). semantic defaults to false so tests see the plain rules.
+// The matching mode is an administrator setting (Admin page, app_settings table). model and semantic say what can run:
+// 'hybrid-learned' needs a model, 'rules+meaning' needs semantic=true, 'rules' always works. semantic defaults to false
+// and model to null, so tests see the plain rules unless they pass them.
 // deleteIdentity(clerkId) removes the sign-in account (Clerk in production, a spy in tests).
 // identity(req) returns { clerkId, getEmail(), getName() } or null.
 // Production passes a Clerk-backed resolver (server.js). Tests pass a stand-in, so no Clerk keys are needed to test.
 export function createApp({ identity, pre = [], deleteIdentity = async () => {}, embedder = lexicalEmbedder, model = null, semantic = false }) {
 const app = express()
+settingsTable().catch((e) => console.warn(`Could not create the settings table yet (${e.message}). Will retry.`))
 app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }))
 pre.forEach((m) => app.use(m))
 app.use(express.json({ limit: '100kb' }))
@@ -274,37 +287,7 @@ async function applyPatch(userId, currentRole, d, { allowRole = false } = {}) {
 
 app.put('/api/me', auth(), wrap(async (req, res) => res.json(await applyPatch(req.user.id, req.user.role, req.body || {}))))
 
-// ---------- your data (Data Protection Act, 2019: access and erasure) ----------
-// Everything stored about the caller, and only the caller: other people appear as ids, never by name or profile.
-app.get('/api/me/export', auth(), wrap(async (req, res) => {
-  const me = req.user.id
-  const [profile] = await getUsers('WHERE u.id = $1', [me])
-  const rows = (sql) => q(sql, [me])
-  const data = {
-    about: 'Everything AlumniConnect stores about you. Other people are shown by id only. Your CV file is never stored.',
-    exportedAt: new Date().toISOString(),
-    profile,
-    mentorshipRequestsSent: await rows('SELECT mentor_id AS "mentorId", status, created_at AS "createdAt", responded_at AS "respondedAt" FROM mentorship_requests WHERE student_id = $1 ORDER BY created_at'),
-    mentorshipRequestsReceived: await rows('SELECT student_id AS "studentId", status, created_at AS "createdAt", responded_at AS "respondedAt" FROM mentorship_requests WHERE mentor_id = $1 ORDER BY created_at'),
-    mentorships: await rows(`SELECT id, CASE WHEN student_id = $1 THEN 'student' ELSE 'mentor' END AS "yourRole",
-        CASE WHEN student_id = $1 THEN mentor_id ELSE student_id END AS "otherPersonId", status, started_at AS "startedAt", ended_at AS "endedAt"
-      FROM mentorship_matches WHERE status IS NOT NULL AND $1 IN (student_id, mentor_id) ORDER BY started_at`),
-    messagesYouSent: await rows('SELECT match_id AS "mentorshipId", body, created_at AS "createdAt" FROM messages WHERE sender_id = $1 ORDER BY created_at'),
-    sessions: await rows(`SELECT s.match_id AS "mentorshipId", s.starts_at AS "startsAt", s.topic, s.status, (s.proposed_by = $1) AS "proposedByYou"
-      FROM mentoring_sessions s JOIN mentorship_matches m ON m.id = s.match_id WHERE $1 IN (m.student_id, m.mentor_id) ORDER BY s.starts_at`),
-    reviewsYouWrote: await rows(`SELECT r.match_id AS "mentorshipId", r.rating, r.comment, r.created_at AS "createdAt"
-      FROM mentorship_reviews r JOIN mentorship_matches m ON m.id = r.match_id WHERE m.student_id = $1 ORDER BY r.created_at`),
-    mentorRatingsYouGave: await rows('SELECT mentor_id AS "mentorId", helpful, created_at AS "createdAt", updated_at AS "updatedAt" FROM match_feedback WHERE student_id = $1 ORDER BY created_at'),
-    forumPosts: await rows('SELECT id, title, body, category, created_at AS "createdAt" FROM forum_posts WHERE author_id = $1 ORDER BY created_at'),
-    forumReplies: await rows('SELECT post_id AS "postId", body, created_at AS "createdAt" FROM forum_replies WHERE author_id = $1 ORDER BY created_at'),
-    storedForMatching: (await rows('SELECT provider, updated_at AS "updatedAt" FROM profile_embeddings WHERE user_id = $1'))
-      .map((e) => ({ ...e, what: 'A list of numbers computed from your bio to compare goals. It cannot be turned back into text.' })),
-  }
-  res.set('Cache-Control', 'no-store')
-  res.set('Content-Disposition', 'attachment; filename="alumniconnect-my-data.json"')
-  res.json(data)
-}))
-
+// ---------- your data (Data Protection Act, 2019: erasure) ----------
 // Deletes the caller's profile, everything linked to it, and their sign-in account. Needs { confirm: 'DELETE' }.
 app.delete('/api/me', auth(), wrap(async (req, res) => {
   if (req.body?.confirm !== 'DELETE') throw bad('To delete your account, confirm by typing DELETE.')
@@ -334,39 +317,60 @@ app.get('/api/alumni', auth(), wrap(async (req, res) => {
 }))
 
 // ---------- mentorship ----------
-// Which matching method is in use, for the label on the matches page, e.g. "Learned model (trained on synthetic data)".
-const matchingMode = () => (model ? 'hybrid-learned' : semantic ? 'rules+meaning' : 'rules')
-app.get('/api/matching-method', auth('student'), (req, res) => {
-  res.json({ method: matchingMode(), label: methodLabel(matchingMode(), model), dataSource: model?.data_source ?? null })
-})
+// The matching mode is chosen by an administrator, never by students. If the chosen mode cannot run, matching steps
+// down instead of failing: learned model -> rules + text meaning -> rules only.
+//   'hybrid-learned' needs weights.json and the embedding model it was trained with (e.g. MiniLM, not the lexical fallback)
+//   'rules+meaning'  needs text meaning to be on (MATCH_SEMANTIC=off turns it off)
+async function configuredMode() {
+  try {
+    await settingsTable()
+    const v = (await q("SELECT value FROM app_settings WHERE key = 'matching_mode'"))[0]?.value
+    return MATCHING_MODES.includes(v) ? v : DEFAULT_MATCHING_MODE
+  } catch (e) { console.warn(`Could not read the matching mode (${e.message}). Using the default.`); return DEFAULT_MATCHING_MODE }
+}
+async function canRun(mode) {
+  if (mode === 'rules+meaning') return semantic
+  if (mode !== 'hybrid-learned') return true
+  if (!model) return false
+  if (!model.embedding_provider) return true
+  try { return (await embedder.ready()) === model.embedding_provider } catch { return false }
+}
+async function activeMode(wanted) {
+  for (const mode of MATCHING_MODES.slice(MATCHING_MODES.indexOf(wanted))) if (await canRun(mode)) return mode
+  return 'rules'
+}
 
-app.get('/api/matches', auth('student'), wrap(async (req, res) => {
-  const [me] = await getUsers('WHERE u.id = $1', [req.user.id])
-  const mentors = await getUsers("WHERE u.role = 'alumnus' AND u.is_mentor AND u.visibility <> 'hidden' AND u.id <> $1", [me.id])
-  const meaning = !model && semantic
-  let sims = new Map(); let usable = false
-  if (model) {   // text similarity is only used when it comes from the same embedding provider the model was trained with
-    const r = await similarities(me, mentors); sims = r.sims
-    usable = !model.embedding_provider || model.embedding_provider === r.provider
-  } else if (meaning) sims = (await similarities(me, mentors)).sims   // no bio on either side gives similarity 0
-  const out = mentors.map((m) => {
-    const rule = scoreMatch(me, m)
-    const rulesOnly = { mentor: m, score: rule.score, reasons: rule.reasons, ruleScore: rule.score, method: 'rules' }
-    if (!model) {
-      const sim = meaning ? sims.get(m.id) || 0 : 0
-      const bonus = semanticBonus(sim)
-      if (!bonus) return rulesOnly
-      return { mentor: m, score: Math.min(100, rule.score + bonus), reasons: [...rule.reasons, `Similar goals in their bios (${Math.round(100 * sim)}% similar)`],
-        ruleScore: rule.score, similarity: round2(sim), method: 'rules+meaning' }
-    }
-    const sim = usable ? sims.get(m.id) || 0 : 0
+// Which matching method is in use, e.g. "Learned model (trained on synthetic data)". Not shown to students as a choice.
+app.get('/api/matching-method', auth('student'), wrap(async (req, res) => {
+  const mode = await activeMode(await configuredMode())
+  res.json({ method: mode, label: methodLabel(mode, model), dataSource: mode === 'hybrid-learned' ? model?.data_source ?? null : null })
+}))
+
+// One score (0 to 100) for a student and a mentor, with its reasons, in the given mode.
+function scorePair(me, m, mode, sim) {
+  const rule = scoreMatch(me, m)
+  if (mode === 'hybrid-learned') {
     const p = predict(model, pairFeatures(me, m, sim))
     const reasons = [...rule.reasons]
     if (sim >= 0.3) reasons.push(`Profiles describe similar goals (text similarity ${sim.toFixed(2)})`)
     return { mentor: m, score: Math.round(100 * p), reasons, ruleScore: rule.score, similarity: round2(sim), method: 'hybrid-learned' }
-  }).filter((x) => (x.method === 'hybrid-learned' ? x.ruleScore > 0 || x.similarity >= 0.3 : x.score > 0))   // rules+meaning can add people from other fields
-    .sort((a, b) => b.score - a.score || a.mentor.name.localeCompare(b.mentor.name))
-    .slice(0, 10)
+  }
+  const bonus = mode === 'rules+meaning' ? semanticBonus(sim) : 0   // no bio on either side gives similarity 0
+  if (!bonus) return { mentor: m, score: rule.score, reasons: rule.reasons, ruleScore: rule.score, method: 'rules' }
+  return { mentor: m, score: Math.min(100, rule.score + bonus), reasons: [...rule.reasons, `Similar goals in their bios (${Math.round(100 * sim)}% similar)`],
+    ruleScore: rule.score, similarity: round2(sim), method: 'rules+meaning' }
+}
+
+app.get('/api/matches', auth('student'), wrap(async (req, res) => {
+  const [me] = await getUsers('WHERE u.id = $1', [req.user.id])
+  const mentors = await getUsers("WHERE u.role = 'alumnus' AND u.is_mentor AND u.visibility <> 'hidden' AND u.id <> $1", [me.id])
+  let mode = await activeMode(await configuredMode())
+  let sims = new Map()
+  if (mode !== 'rules') {
+    try { sims = (await similarities(me, mentors)).sims }
+    catch (e) { console.warn(`Text similarity failed (${e.message}). Matching with rules only.`); mode = 'rules' }   // both other modes need it
+  }
+  const out = rankMatches(mentors.map((m) => scorePair(me, m, mode, sims.get(m.id) || 0)), me)
   // Refresh the cached scores. Rows with a status are real mentorships (with their chat and sessions): never deleted here.
   await q('DELETE FROM mentorship_matches WHERE student_id = $1 AND status IS NULL', [me.id])
   for (const x of out) {
@@ -376,24 +380,6 @@ app.get('/api/matches', auth('student'), wrap(async (req, res) => {
   }
   const relation = await relationsOf(me.id)
   res.json(out.map((x) => { const v = viewOf(x.mentor, relation(x.mentor.id)); return { ...x, mentor: v, reasons: reasonsFor(x.reasons, v) } }))
-}))
-
-// ---------- tester ratings (training data for the learned model) ----------
-// Mentors are listed without any score, in an order that does not depend on the ranking, so ratings are not biased by position.
-app.get('/api/rate/candidates', auth('student'), wrap(async (req, res) => {
-  const mentors = await getUsers("WHERE u.role = 'alumnus' AND u.is_mentor AND u.visibility <> 'hidden' AND u.id <> $1 ORDER BY u.id LIMIT 30", [req.user.id])
-  const relation = await relationsOf(req.user.id)
-  const given = new Map((await q('SELECT mentor_id, helpful FROM match_feedback WHERE student_id = $1', [req.user.id])).map((r) => [r.mentor_id, r.helpful]))
-  res.json(mentors.map((m) => ({ ...viewOf(m, relation(m.id)), rating: given.has(m.id) ? given.get(m.id) : null })))
-}))
-
-app.post('/api/rate', auth('student'), wrap(async (req, res) => {
-  const mentorId = Number(req.body?.mentorId)
-  if (typeof req.body?.helpful !== 'boolean') throw bad('Answer yes or no.')
-  if (!(await q("SELECT 1 FROM users WHERE id = $1 AND role = 'alumnus' AND is_mentor AND visibility <> 'hidden'", [mentorId])).length) throw bad('That person is not available as a mentor.', 404)
-  await q(`INSERT INTO match_feedback (student_id, mentor_id, helpful) VALUES ($1,$2,$3)
-           ON CONFLICT (student_id, mentor_id) DO UPDATE SET helpful = $3, updated_at = now()`, [req.user.id, mentorId, req.body.helpful])
-  res.status(201).json({ ok: true })
 }))
 
 app.post('/api/requests', auth('student'), wrap(async (req, res) => {
@@ -693,24 +679,20 @@ app.delete('/api/admin/users/:id', auth('admin'), wrap(async (req, res) => {
   res.json({ ok: true })
 }))
 
-// Training data for the Colab notebook: ids and numbers only, no names, emails or text.
-app.get('/api/admin/export/feedback.csv', auth('admin'), wrap(async (req, res) => {
-  const rows = await q('SELECT student_id, mentor_id, helpful, created_at FROM match_feedback ORDER BY student_id, mentor_id')
-  const provider = await embedder.ready()
-  const users = new Map((await getUsers('')).map((u) => [u.id, u]))
-  const cache = new Map()
-  const vec = async (u) => { if (!cache.has(u.id)) cache.set(u.id, await vectorFor(u, provider)); return cache.get(u.id) }
-  const lines = [['student_id', 'mentor_id', 'helpful', 'rule_score', ...FEATURES, 'sim_provider', 'created_at'].join(',')]
-  for (const r of rows) {
-    const s = users.get(r.student_id); const m = users.get(r.mentor_id)
-    if (!s || !m) continue
-    const sv = await vec(s); const mv = await vec(m)
-    const f = pairFeatures(s, m, sv && mv ? cosine(sv, mv) : 0)
-    lines.push([r.student_id, r.mentor_id, r.helpful ? 1 : 0, scoreMatch(s, m).score, ...FEATURES.map((k) => f[k].toFixed(6)), provider, new Date(r.created_at).toISOString()].join(','))
-  }
-  res.set('Content-Type', 'text/csv; charset=utf-8')
-  res.set('Content-Disposition', 'attachment; filename="alumniconnect_feedback.csv"')
-  res.send(lines.join('\n') + '\n')
+// Matching mode: what the administrator chose, and what actually runs now (it differs if, say, weights.json is missing).
+const settingsView = async () => {
+  const matchingMode = await configuredMode()
+  return { matchingMode, activeMode: await activeMode(matchingMode), modes: MATCHING_MODES }
+}
+app.get('/api/admin/settings', auth('admin'), wrap(async (req, res) => res.json(await settingsView())))
+
+app.put('/api/admin/settings', auth('admin'), wrap(async (req, res) => {
+  const mode = req.body?.matchingMode
+  if (!MATCHING_MODES.includes(mode)) throw bad(`Matching mode must be one of: ${MATCHING_MODES.join(', ')}.`)
+  await settingsTable()
+  await q(`INSERT INTO app_settings (key, value, updated_by) VALUES ('matching_mode', $1, $2)
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`, [mode, req.user.id])
+  res.json(await settingsView())
 }))
 
 // ---------- errors ----------

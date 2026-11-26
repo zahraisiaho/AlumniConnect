@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { api } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { PageTitle, Avatar, Field, Suggested, input, btn, btnLine } from '../components/ui'
 import { VisibilityPicker, PrivacySummary, ConsentBox } from '../components/Privacy'
@@ -91,7 +90,7 @@ export default function Profile() {
   )
 }
 
-// Download everything stored about you, or delete your account (Data Protection Act, 2019).
+// Delete your account and its data (Data Protection Act, 2019).
 function YourData() {
   const { deleteAccount } = useAuth()
   const [msg, setMsg] = useState(null)
@@ -99,14 +98,6 @@ function YourData() {
   const [typed, setTyped] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const download = async () => {
-    setMsg(null)
-    try {
-      const url = URL.createObjectURL(await api.exportMyData())
-      const a = document.createElement('a'); a.href = url; a.download = 'alumniconnect-my-data.json'; a.click(); URL.revokeObjectURL(url)
-      setMsg({ ok: true, text: 'Your data was downloaded as alumniconnect-my-data.json.' })
-    } catch (x) { setMsg({ ok: false, text: x.message }) }
-  }
   const remove = async () => {
     setBusy(true); setMsg(null)
     try { await deleteAccount() }   // on success the app leaves for the sign-in page
@@ -116,14 +107,13 @@ function YourData() {
   return (
     <section aria-labelledby="your-data" className="mt-10 max-w-xl space-y-3 border-t border-ice-deep pt-6">
       <h2 id="your-data" className="text-xl font-bold">Your data</h2>
-      <p className="text-sm text-muted">See everything AlumniConnect stores about you, or delete your account. <a href="/privacy" className="underline">Privacy notice</a></p>
-      <button type="button" className={btnLine} onClick={download}>Download my data</button>
+      <p className="text-sm text-muted">You can delete your account and the data stored about you at any time. <a href="/privacy" className="underline">Privacy notice</a></p>
       {!confirming ? (
         <div><button type="button" className={btnLine} onClick={() => { setConfirming(true); setTyped(''); setMsg(null) }}>Delete my account</button></div>
       ) : (
         <div className="space-y-2 border-l-4 border-gold bg-white p-4 text-sm" role="group" aria-labelledby="delete-title">
           <p id="delete-title" className="font-semibold">Delete your account permanently?</p>
-          <p>This deletes your profile, your sign-in account, your requests, mentorships, messages, sessions, ratings, reviews and forum posts. It cannot be undone. You may want to download your data first.</p>
+          <p>This deletes your profile, your sign-in account, your requests, mentorships, messages, sessions, ratings, reviews and forum posts. It cannot be undone.</p>
           <Field label="Type DELETE to confirm"><input className={input} value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" /></Field>
           <div className="flex flex-wrap gap-2">
             <button type="button" className={btn} disabled={typed !== 'DELETE' || busy} onClick={remove}>{busy ? 'Deleting…' : 'Delete my account'}</button>

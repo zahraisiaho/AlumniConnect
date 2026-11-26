@@ -41,7 +41,7 @@ export function viewOf(u, relation = 'member') {
 
 // Match reasons may only mention what the viewer is allowed to see. Text similarity says that the goals are alike,
 // not what they are, so it stays. The others (interests, industry, availability) are summarised in one line.
-const VISIBLE_REASON = /^(Same field of study|Shared skills|Same university|Similar goals in their bios|Profiles describe similar goals)/
+const VISIBLE_REASON = /^(Same field of study|Shared skills|Same university|Similar goals in their bios|Profiles describe similar goals|Suggested: no mentor shares)/
 export function reasonsFor(reasons, view) {
   if (view.profile === 'full') return reasons
   const shown = reasons.filter((r) => VISIBLE_REASON.test(r))

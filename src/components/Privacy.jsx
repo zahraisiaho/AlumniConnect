@@ -31,11 +31,11 @@ export function PrivacySummary() {
     <div className="space-y-2 border border-ice-deep bg-white p-4 text-sm">
       <h2 className="font-semibold">How we use your information</h2>
       <ul className="list-disc space-y-1 pl-5">
-        <li><strong>What we collect:</strong> your profile (name, university, course, field of study, graduation year, industry, job title and company for alumni, skills, interests, availability), your bio, and the ratings you give mentors.</li>
-        <li><strong>Why:</strong> to suggest mentors who fit your goals, to run mentorships, and to improve matching. Ratings are used for training as ids and numbers only.</li>
+        <li><strong>What we collect:</strong> your profile (name, university, course, field of study, graduation year, industry, job title and company for alumni, skills, interests, availability), and your bio.</li>
+        <li><strong>Why:</strong> to suggest mentors who fit your goals, and to run mentorships.</li>
         <li><strong>Who sees it:</strong> other members see what your visibility setting allows; your mentorship partner sees your full profile; administrators can see accounts to run the service.</li>
         <li><strong>Never shown:</strong> your email address is never shown to other users. If you upload a CV, it is read to suggest answers and the file is not stored.</li>
-        <li><strong>Your choices:</strong> change your visibility, download your data or delete your account at any time in My profile.</li>
+        <li><strong>Your choices:</strong> set your profile visibility (members, limited or hidden), or delete your account, at any time in My profile.</li>
       </ul>
       <p>Read the full <Link to="/privacy" target="_blank" className="font-semibold underline">privacy notice</Link> (Kenya Data Protection Act, 2019).</p>
     </div>

@@ -11,7 +11,6 @@ import Forum from './pages/Forum'
 import Updates from './pages/Updates'
 import Profile from './pages/Profile'
 import Admin from './pages/Admin'
-import Rate from './pages/Rate'
 import Mentorships from './pages/Mentorships'
 import Privacy from './pages/Privacy'
 import { btn, btnLine } from './components/ui'
@@ -86,7 +85,6 @@ export default function App() {
             <Route path="/updates" element={<Updates />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/admin" element={<Admin />} />
-            <Route path="/rate" element={<Rate />} />
           </Route>
           <Route path="/privacy" element={<Privacy />} />
           <Route path="*" element={<Home />} />

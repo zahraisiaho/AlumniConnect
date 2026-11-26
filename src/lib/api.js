@@ -34,15 +34,7 @@ export const api = {
   },
   createProfile: (data) => call('/profile', { method: 'POST', body: data }),
   update: (patch) => call('/me', { method: 'PUT', body: patch }),
-  // Your data: everything stored about you as a JSON file, and deleting your account (needs confirm: 'DELETE').
-  async exportMyData() {
-    const t = tokenGetter ? await tokenGetter() : null
-    let res
-    try { res = await fetch(`${BASE}/me/export`, { headers: t ? { Authorization: `Bearer ${t}` } : {} }) }
-    catch { throw new Error('Cannot reach the server. Check your connection and try again.') }
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not prepare your data. Please try again.')
-    return res.blob()
-  },
+  // Deletes your account and its data (needs confirm: 'DELETE').
   deleteMe: () => call('/me', { method: 'DELETE', body: { confirm: 'DELETE' } }),
   universities: () => call('/universities'),
   alumni: (f = {}) => call(`/alumni${qs({ q: f.q, university: f.university, industry: f.industry })}`),
@@ -67,16 +59,8 @@ export const api = {
   createUpdate: (d) => call('/updates', { method: 'POST', body: d }),
   adminSummary: () => call('/admin/summary'),
   adminUsers: () => call('/admin/users'),
-  rateCandidates: () => call('/rate/candidates'),
-  rate: (mentorId, helpful) => call('/rate', { method: 'POST', body: { mentorId, helpful } }),
-  async adminExportFeedback() {
-    const t = tokenGetter ? await tokenGetter() : null
-    let res
-    try { res = await fetch(`${BASE}/admin/export/feedback.csv`, { headers: t ? { Authorization: `Bearer ${t}` } : {} }) }
-    catch { throw new Error('Cannot reach the server. Check that the backend is running.') }
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Export failed.')
-    return res.blob()
-  },
+  adminSettings: () => call('/admin/settings'),
+  adminSetMatchingMode: (matchingMode) => call('/admin/settings', { method: 'PUT', body: { matchingMode } }),
   // Sends the CV for reading; returns suggested answers. The server does not store the file or save anything.
   // No Content-Type header here: the browser sets multipart/form-data with its boundary.
   async parseCv(file, { timeoutMs = 90000 } = {}) {

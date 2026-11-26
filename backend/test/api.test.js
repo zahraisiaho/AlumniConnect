@@ -220,32 +220,6 @@ test('TC-021 a student whose graduation year has passed becomes an alumnus autom
   assert.equal((await call('/me', { as: who })).data.role, 'alumnus')
 })
 
-test('TC-022 tester ratings: stored once per pair, no scores or emails shown, only students may rate', async () => {
-  const who = fresh(); await call('/profile', { method: 'POST', as: who, body: profile() })
-  const list = (await call('/rate/candidates', { as: who })).data
-  assert.ok(list.length >= 1 && list.every((m) => m.rating === null && !('email' in m) && !('score' in m)))
-  const b = list.find((m) => m.name === 'Brian Otieno')
-  assert.equal((await call('/rate', { method: 'POST', as: who, body: { mentorId: b.id, helpful: true } })).status, 201)
-  assert.equal((await call('/rate', { method: 'POST', as: who, body: { mentorId: b.id, helpful: false } })).status, 201)
-  assert.equal((await call('/rate/candidates', { as: who })).data.find((m) => m.id === b.id).rating, false)
-  const rows = await q('SELECT helpful FROM match_feedback WHERE mentor_id = $1 AND student_id = (SELECT id FROM users WHERE email = $2)', [b.id, who.email])
-  assert.equal(rows.length, 1)
-  assert.equal((await call('/rate', { method: 'POST', as: who, body: { mentorId: b.id, helpful: 'yes' } })).status, 400)
-  assert.equal((await call('/rate', { method: 'POST', as: who, body: { mentorId: 999999, helpful: true } })).status, 404)
-  assert.equal((await call('/rate', { method: 'POST', as: brian, body: { mentorId: b.id, helpful: true } })).status, 403)
-})
-
-test('TC-023 training export: admin only, numbers only, one row per rating', async () => {
-  const raw = async (as) => { const r = await fetch(BASE + '/admin/export/feedback.csv', { headers: { 'x-test-clerk-id': as.id, 'x-test-email': '' } }); return { status: r.status, type: r.headers.get('content-type'), text: await r.text() } }
-  assert.equal((await raw(student)).status, 403)
-  const r = await raw(admin)
-  assert.equal(r.status, 200); assert.match(r.type, /text\/csv/)
-  const lines = r.text.trim().split('\n')
-  assert.equal(lines[0], ['student_id', 'mentor_id', 'helpful', 'rule_score', ...FEATURES, 'sim_provider', 'created_at'].join(','))
-  assert.equal(lines.length - 1, (await q('SELECT count(*)::int AS n FROM match_feedback'))[0].n)
-  assert.ok(!r.text.includes('@') && !r.text.includes('Brian'))
-})
-
 const bios = { student: 'I want guidance on machine learning and data science careers', related: 'I lead machine learning teams and coach students on data science careers', unrelated: 'I run marketing campaigns and brand design for retail companies' }
 async function hybridSetup() {
   const s = fresh(), m1 = fresh(), m2 = fresh()
@@ -276,15 +250,14 @@ test('TC-024 hybrid model: learned weights and text similarity change the rankin
   } finally { await new Promise((r) => app2.close(r)) }
 })
 
-test('TC-025 text similarity is ignored if it came from a different provider than the model was trained with', async () => {
+test('TC-025 if the embedding model the learned model was trained with is not loaded, matching falls back instead of using it', async () => {
   const { s } = await hybridSetup()
-  const app3 = createApp({ identity, embedder: lexicalEmbedder, model: { ...strongSimilarity, embedding_provider: 'minilm-l6-v2' } }).listen(0)
-  try {
-    const hyb = (await call('/matches', { as: s, base: `http://localhost:${app3.address().port}/api` })).data
-    const two = hyb.find((x) => x.mentor.name === 'Test Mentor Two')
-    assert.equal(two.similarity, 0)
-    assert.ok(pos(hyb, 'Test Mentor One') < pos(hyb, 'Test Mentor Two'))
-  } finally { await new Promise((r) => app3.close(r)) }
+  const minilmModel = { ...strongSimilarity, embedding_provider: 'minilm-l6-v2' }   // but the embedder here is the lexical fallback
+  const meaning = await withApp({ model: minilmModel, semantic: true }, async (base) => (await call('/matches', { as: s, base })).data)
+  assert.ok(meaning.length > 0 && meaning.every((x) => ['rules+meaning', 'rules'].includes(x.method)) && meaning.some((x) => x.method === 'rules+meaning'))
+  const rules = await withApp({ model: minilmModel }, async (base) => (await call('/matches', { as: s, base })).data)   // text meaning off too
+  assert.ok(rules.length > 0 && rules.every((x) => x.method === 'rules'))
+  assert.ok(pos(rules, 'Test Mentor One') < pos(rules, 'Test Mentor Two'))
 })
 
 test('TC-026 typed-in skills: a new skill is added once, a listed one is reused ignoring case', async () => {
@@ -646,7 +619,7 @@ test('TC-048 CV upload and profile save work through a forwarding proxy with a t
   } finally { await new Promise((r) => proxy.close(r)) }
 })
 
-// ---------- privacy: visibility, consent, download my data, delete my account ----------
+// ---------- privacy: visibility, consent, delete my account ----------
 const LIMITED_KEYS = ['fieldOfStudy', 'id', 'mentor', 'name', 'profile', 'role', 'skills', 'university']
 async function privacyCast() {
   const tag = `${stamp}${n}`
@@ -694,7 +667,7 @@ test('TC-050 directory: members in full, limited as first name/field/university/
   assert.ok((await list(`?university=${encodeURIComponent(p.l.university)}`)).some((x) => x.id === p.l.id))
 })
 
-test('TC-051 matches and the rating list: hidden mentors never appear or can be requested; limited ones show limited details and reasons', async () => {
+test('TC-051 matches: hidden mentors never appear or can be requested; limited ones show limited details and reasons', async () => {
   const { who, people: p, tag } = await privacyCast()
   const matches = (await call('/matches', { as: who.s })).data
   const m = matches.find((x) => x.mentor.id === p.m.id), l = matches.find((x) => x.mentor.id === p.l.id)
@@ -705,18 +678,7 @@ test('TC-051 matches and the rating list: hidden mentors never appear or can be 
   assert.ok(!l.reasons.some((r) => /^(Works in|Shared mentorship interests|Both available)/.test(r)))
   assert.ok(l.reasons.includes('Other details in their profile also match')); assert.ok(l.reasons.some((r) => r.startsWith('Same field of study')))
   assert.equal(l.score, m.score)   // same attributes, same score: visibility changes what is shown, not the ranking
-  // the rating list shows up to 30 mentors: every entry must match that person's own visibility, and no hidden mentor appears
-  const rate = (await call('/rate/candidates', { as: who.s })).data
-  assert.ok(rate.length > 0); assert.ok(!rate.some((x) => x.id === p.h.id))
-  const vis = new Map((await q('SELECT id, visibility FROM users WHERE id = ANY($1)', [rate.map((x) => x.id)])).map((r) => [r.id, r.visibility]))
-  for (const x of rate) {
-    assert.notEqual(vis.get(x.id), 'hidden')
-    if (vis.get(x.id) === 'limited') assert.deepEqual(Object.keys(x).sort(), [...LIMITED_KEYS, 'rating'].sort())
-    else assert.equal(x.profile, 'full')
-    assert.ok(!('email' in x))
-  }
   assert.equal((await call('/requests', { method: 'POST', as: who.s, body: { mentorId: p.h.id } })).status, 404)
-  assert.equal((await call('/rate', { method: 'POST', as: who.s, body: { mentorId: p.h.id, helpful: true } })).status, 404)
   assert.equal((await call('/requests', { method: 'POST', as: who.s, body: { mentorId: p.l.id } })).status, 201)   // limited mentors can be asked
   const incoming = (await call('/requests/incoming', { as: who.l })).data
   assert.equal(incoming.length, 1); assert.equal(incoming[0].from.name, `Test Seeker s${tag}`)   // the requester chose members visibility
@@ -732,15 +694,15 @@ test('TC-052 a hidden user is not exposed anywhere, except to the person they ar
   await call('/me', { method: 'PUT', as: who.h, body: { visibility: 'hidden' } })
   await call('/posts', { method: 'POST', as: who.h, body: { title: `Test post hidden ${tag}`, body: 'Hello from a hidden member', category: 'General' } })
 
-  // a stranger sees nothing that identifies them: not in the directory, matches, ratings, mentorships or as a forum author
+  // a stranger sees nothing that identifies them: not in the directory, matches, mentorships or as a forum author
   const stranger = who.s2
   const seen = [await call('/alumni', { as: stranger }), await call('/alumni?q=Kamau', { as: stranger }), await call('/matches', { as: stranger }),
-    await call('/rate/candidates', { as: stranger }), await call('/posts', { as: stranger }), await call('/mentorships', { as: stranger })].map((r) => r.data)
+    await call('/posts', { as: stranger }), await call('/mentorships', { as: stranger })].map((r) => r.data)
   for (const d of seen) {
     const j = JSON.stringify(d)
     assert.ok(!j.includes(`Hidden${tag}`) && !j.includes(p.h.email) && !j.includes(`Firm ${tag} hidden`) && !j.includes(`"id":${p.h.id},`), j.slice(0, 200))
   }
-  const post = seen[4].find((x) => x.title === `Test post hidden ${tag}`)
+  const post = seen[3].find((x) => x.title === `Test post hidden ${tag}`)
   assert.equal(post.author, 'A member'); assert.equal(post.authorId, null)
 
   // the active mentee sees them in full, in My mentorships, in the directory and as a forum author
@@ -753,25 +715,6 @@ test('TC-052 a hidden user is not exposed anywhere, except to the person they ar
   const after = (await call('/mentorships', { as: who.s })).data.find((x) => x.id === mentorshipId)
   assert.equal(after.other.name, 'Test'); assert.equal(after.other.company, undefined)
   assert.ok(!(await call('/alumni', { as: who.s })).data.some((x) => x.id === p.h.id))
-})
-
-test('TC-053 download my data: only the data of the person asking, as a JSON attachment', async () => {
-  const { who, people: p, tag } = await privacyCast()
-  await call('/requests', { method: 'POST', as: who.s, body: { mentorId: p.m.id } })
-  const req = (await call('/requests/incoming', { as: who.m })).data[0]
-  const { mentorshipId } = (await call(`/requests/${req.id}`, { method: 'PATCH', as: who.m, body: { status: 'accepted' } })).data
-  await call(`/mentorships/${mentorshipId}/messages`, { method: 'POST', as: who.s, body: { body: `student says hi ${tag}` } })
-  await call(`/mentorships/${mentorshipId}/messages`, { method: 'POST', as: who.m, body: { body: `mentor private reply ${tag}` } })
-  await call('/rate', { method: 'POST', as: who.s, body: { mentorId: p.l.id, helpful: true } })
-  const r = await fetch(`${BASE}/me/export`, { headers: { 'x-test-clerk-id': who.s.id, 'x-test-email': who.s.email } })
-  assert.equal(r.status, 200); assert.match(r.headers.get('content-disposition'), /attachment; filename="alumniconnect-my-data.json"/)
-  const data = await r.json(); const j = JSON.stringify(data)
-  assert.equal(data.profile.email, who.s.email); assert.equal(data.profile.name, `Test Seeker s${tag}`)
-  assert.deepEqual(data.messagesYouSent.map((m) => m.body), [`student says hi ${tag}`])
-  assert.deepEqual(data.mentorRatingsYouGave.map((x) => [x.mentorId, x.helpful]), [[p.l.id, true]])
-  assert.equal(data.mentorships[0].otherPersonId, p.m.id); assert.equal(data.mentorshipRequestsSent[0].mentorId, p.m.id)
-  for (const other of [`mentor private reply ${tag}`, p.m.name, who.m.email, `Firm ${tag}`, who.s2.email]) assert.ok(!j.includes(other), other)
-  assert.equal((await call('/me/export')).status, 401)
 })
 
 test('TC-054 delete my account: needs confirmation, removes the sign-in account and everything linked; others are unaffected', async () => {
@@ -795,4 +738,70 @@ test('TC-054 delete my account: needs confirmation, removes the sign-in account 
   assert.equal((await call('/me', { method: 'DELETE', body: { confirm: 'DELETE' } })).status, 401)
   const admins = (await q("SELECT count(*)::int AS n FROM users WHERE role = 'admin'"))[0].n
   if (admins === 1) assert.equal((await call('/me', { method: 'DELETE', as: admin, body: { confirm: 'DELETE' } })).status, 409)   // never the last admin
+})
+
+// ---------- a new student's matches; matching mode as an admin setting, with fallbacks ----------
+test('TC-055 a new student with a complete profile gets a ranked list with scores from 0 to 100 and reasons, in every mode', async () => {
+  const who = fresh()
+  const created = (await call('/profile', { method: 'POST', as: who, body: profile({ gradYear: Y + 2, fieldOfStudy: 'Architecture & Urban Planning',
+    skills: [`Test skill ${stamp} housing`], interests: ['Internships abroad'], bio: 'I want to design affordable housing for growing towns.' }) })).data
+  assert.equal(created.role, 'student')
+  for (const opts of [{}, { semantic: true }, { model: strongSimilarity, semantic: true }]) {
+    const r = await withApp(opts, async (base) => call('/matches', { as: who, base }))
+    assert.equal(r.status, 200); assert.ok(r.data.length > 0, JSON.stringify(opts))
+    for (const x of r.data) { assert.ok(Number.isInteger(x.score) && x.score >= 0 && x.score <= 100); assert.ok(x.reasons.length > 0) }
+  }
+})
+
+const setMode = (matchingMode, as = admin) => call('/admin/settings', { method: 'PUT', as, body: { matchingMode } })
+test('TC-056 matching mode is an admin setting: only administrators can see or change it, it is stored, and matches follow it', async () => {
+  const { s } = await hybridSetup()
+  const opts = { model: strongSimilarity, semantic: true }   // everything available, so the setting alone decides
+  const methods = () => withApp(opts, async (base) => [...new Set((await call('/matches', { as: s, base })).data.map((x) => x.method))].sort())
+  try {
+    assert.equal((await call('/admin/settings', { as: null })).status, 401)
+    for (const who of [student, brian]) { assert.equal((await call('/admin/settings', { as: who })).status, 403); assert.equal((await setMode('rules', who)).status, 403) }
+    assert.equal((await setMode('magic')).status, 400)
+    const def = (await call('/admin/settings', { as: admin })).data
+    assert.equal(def.matchingMode, 'hybrid-learned'); assert.equal(def.activeMode, 'rules')   // the main test app has no model and no text meaning
+    assert.deepEqual(await methods(), ['hybrid-learned'])
+    const r = await setMode('rules+meaning')
+    assert.equal(r.status, 200); assert.equal(r.data.matchingMode, 'rules+meaning')
+    assert.equal((await call('/admin/settings', { as: admin })).data.matchingMode, 'rules+meaning')   // stored in the database
+    assert.deepEqual(await methods(), ['rules', 'rules+meaning'])
+    await setMode('rules'); assert.deepEqual(await methods(), ['rules'])
+    assert.equal((await withApp(opts, async (base) => (await call('/matching-method', { as: s, base })).data)).method, 'rules')
+  } finally { await q("DELETE FROM app_settings WHERE key = 'matching_mode'") }
+})
+
+test('TC-057 if the learned model or the text model cannot load or fails, matches fall back: never an error or an empty list', async () => {
+  const { s } = await hybridSetup()
+  const run = (opts) => withApp(opts, async (base) => call('/matches', { as: s, base }))
+  const ok = (r, allowed) => { assert.equal(r.status, 200); assert.ok(r.data.length > 0); assert.ok(r.data.every((x) => allowed.includes(x.method)), JSON.stringify(r.data.map((x) => x.method))) }
+  const crashes = { ready: async () => 'crashing-model', embed: async () => { throw new Error('out of memory') } }
+  const cannotLoad = { ready: async () => { throw new Error('cannot load') }, embed: async () => { throw new Error('cannot load') } }
+  ok(await run({ model: strongSimilarity, semantic: true, embedder: crashes }), ['rules'])
+  ok(await run({ semantic: true, embedder: crashes }), ['rules'])
+  ok(await run({ model: { ...strongSimilarity, embedding_provider: 'minilm-l6-v2' }, semantic: true, embedder: cannotLoad }), ['rules'])
+  ok(await run({ model: null, semantic: true }), ['rules+meaning', 'rules'])   // no weights.json
+  ok(await run({ model: null, semantic: false }), ['rules'])
+})
+
+// ---------- names: what the person typed is kept; the email prefix is only a last resort ----------
+test('TC-058 the typed name is saved; signing in again never overwrites it; the email prefix is used only when no name exists at all', async () => {
+  const who = as(`test_new_${stamp}_names`, `amina.w.${stamp}@test.com`)
+  const r = await call('/profile', { method: 'POST', as: who, body: profile({ name: 'Amina Wanjiru' }) })
+  assert.equal(r.status, 201); assert.equal(r.data.name, 'Amina Wanjiru')
+  for (let i = 0; i < 2; i++) assert.equal((await call('/me', { as: who })).data.name, 'Amina Wanjiru')   // each sign-in loads /me; Clerk's name here is 'Test Person'
+  assert.equal((await call('/me', { method: 'PUT', as: who, body: { bio: 'Hello' } })).data.name, 'Amina Wanjiru')   // saving other fields keeps it
+  // An administrator's profile is created on first sign-in (no form): Clerk's first and last name, else the email prefix.
+  const clerkName = (name) => async (req) => ({ ...(await identity(req)), getName: async () => name })
+  const named = fresh(), unnamed = fresh()
+  process.env.ADMIN_EMAILS = `${named.email},${unnamed.email}`
+  try {
+    assert.equal((await withApp({ identity: clerkName('Grace Akinyi') }, (base) => call('/me', { as: named, base }))).data.name, 'Grace Akinyi')
+    assert.equal((await withApp({ identity: clerkName('') }, (base) => call('/me', { as: unnamed, base }))).data.name, unnamed.email.split('@')[0])
+    await call('/me', { method: 'PUT', as: unnamed, body: { name: 'Otieno Admin' } })
+    assert.equal((await withApp({ identity: clerkName('Someone Else') }, (base) => call('/me', { as: unnamed, base }))).data.name, 'Otieno Admin')   // never overwritten
+  } finally { delete process.env.ADMIN_EMAILS }
 })

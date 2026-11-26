@@ -35,12 +35,15 @@ const embedder = autoEmbedder()
 // Load the text model before taking requests and run it once, so the first match request is not slow.
 // The first start downloads the model (about 90 MB); after that it loads from the local cache.
 const provider = await embedder.ready()
-await embedder.embed('warm up')
+try { await embedder.embed('warm up') } catch (e) { console.warn(`Text model warm-up failed (${e.message}). Matching falls back if it keeps failing.`) }
 console.log(`Text meaning: ${provider}${provider === 'lexical-hash-256' ? ' (fallback)' : ''}`)
 const model = loadModel(new URL('../model/weights.json', import.meta.url))
 const semantic = semanticOn()
-console.log(model ? `Matching: ${methodLabel('hybrid-learned', model)}, loaded (${model.trained_on?.pairs ?? '?'} ${model.data_source === 'synthetic' ? 'synthetic' : 'rated'} pairs)`
-  : semantic ? 'Matching: rules + text meaning (no model/weights.json yet)' : 'Matching: rule-based (MATCH_SEMANTIC=off)')
+// The mode itself is chosen on the Admin page (default: learned model). These say what is available to it.
+console.log(model ? `Learned model: ${methodLabel('hybrid-learned', model)}, loaded (${model.trained_on?.pairs ?? '?'} ${model.data_source === 'synthetic' ? 'synthetic' : 'rated'} pairs)`
+  : 'Learned model: not loaded (no model/weights.json), so matching falls back to rules + text meaning')
+if (model?.embedding_provider && model.embedding_provider !== provider) console.warn(`Learned model needs ${model.embedding_provider}, but text meaning is ${provider}: matching falls back to rules + text meaning`)
+if (!semantic) console.log('Text meaning: off (MATCH_SEMANTIC=off), so "rules + text meaning" falls back to rules only')
 const app = createApp({ identity, deleteIdentity, embedder, model, semantic, pre: [clerkMiddleware()] })
 const port = Number(process.env.PORT) || 4000
 app.listen(port, () => console.log(`AlumniConnect API running on http://localhost:${port}`))

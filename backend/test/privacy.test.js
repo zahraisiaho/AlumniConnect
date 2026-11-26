@@ -32,6 +32,8 @@ test('reasons for a limited profile only mention what may be seen', () => {
   assert.deepEqual(reasonsFor(reasons, { profile: 'full' }), reasons)
   assert.deepEqual(reasonsFor(reasons, { profile: 'limited' }), ['Same field of study: Law', 'Shared skills: Legal research', 'Same university', 'Similar goals in their bios (60% similar)', 'Other details in their profile also match'])
   assert.deepEqual(reasonsFor(['Same university'], { profile: 'limited' }), ['Same university'])
+  const none = ['Suggested: no mentor shares your field, skills or interests yet']   // says nothing about the mentor's hidden details
+  assert.deepEqual(reasonsFor(none, { profile: 'limited' }), none)
 })
 
 test('first names and visibility values', () => {

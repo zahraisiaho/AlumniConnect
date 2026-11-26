@@ -15,6 +15,22 @@ export function semanticBonus(similarity, c = SEMANTIC_BONUS) {
 // On unless MATCH_SEMANTIC=off.
 export const semanticOn = (env = process.env) => String(env.MATCH_SEMANTIC || '').trim().toLowerCase() !== 'off'
 
+// Matching needs a field of study, at least one skill and at least one interest. Until then the page asks for them.
+export const profileComplete = (s) => !!s?.fieldOfStudy && s.skills?.length > 0 && s.interests?.length > 0
+
+export const NO_OVERLAP_REASON = 'Suggested: no mentor shares your field, skills or interests yet'
+
+// scored: [{ mentor, score, ruleScore, similarity?, method, reasons }]. Keeps the mentors who have something in common
+// with the student, best first. If a complete profile has nothing in common with anyone (few mentors, or mentors with
+// sparse profiles), every mentor is ranked anyway and the reason says so, so a new student is not left with an empty
+// page. An incomplete profile gets an empty list, and the page asks the student to complete it.
+export function rankMatches(scored, student, limit = 10) {
+  const byScore = (a, b) => b.score - a.score || a.mentor.name.localeCompare(b.mentor.name)
+  const related = scored.filter((x) => (x.method === 'hybrid-learned' ? x.ruleScore > 0 || x.similarity >= 0.3 : x.score > 0))
+  const list = related.length || !profileComplete(student) ? related : scored.map((x) => ({ ...x, reasons: [...x.reasons, NO_OVERLAP_REASON] }))
+  return list.sort(byScore).slice(0, limit)
+}
+
 export function scoreMatch(student, mentor) {
   let score = 0
   const reasons = []

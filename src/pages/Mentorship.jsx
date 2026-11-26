@@ -6,7 +6,8 @@ import { Avatar, PageTitle, Row, btnLine, btnGold, workLine, LimitedNote } from 
 
 export default function Mentorship() {
   const { user } = useAuth()
-  const [matches, setMatches] = useState([])
+  const [matches, setMatches] = useState(null)   // null while loading
+  const [matchErr, setMatchErr] = useState('')
   const [method, setMethod] = useState('')   // e.g. "Learned model (trained on synthetic data)"; kept, not shown on the page
   const [incoming, setIncoming] = useState([])
   const [sent, setSent] = useState({})
@@ -15,7 +16,7 @@ export default function Mentorship() {
 
   const load = () => {
     if (isStudent) {
-      api.matches(user).then(setMatches)
+      api.matches(user).then((m) => { setMatches(m); setMatchErr('') }).catch((e) => { setMatches((m) => m || []); setMatchErr(e.message) })
       api.matchingMethod().then((m) => setMethod(m.label)).catch(() => {})
       api.sentRequests(user.id).then((r) => setSent(Object.fromEntries(r.map((x) => [x.toId, x.status]))))
     } else api.incoming(user.id).then(setIncoming)
@@ -56,16 +57,20 @@ export default function Mentorship() {
     )
   }
 
+  // Same check as the server (profileComplete in backend/src/matching.js).
+  const incomplete = !user.fieldOfStudy || !user.skills?.length || !user.interests?.length
   return (
     <>
       <PageTitle title="Your mentor matches" sub="Ranked by field of study, skills, interests, industry and availability. Every score shows its reasons." />
-      {!user.fieldOfStudy || !user.skills?.length || !user.interests?.length
+      {matchErr && <p role="alert" className="mb-4 border-l-4 border-gold bg-white p-3 text-sm">Could not load your matches: {matchErr} <button className="font-semibold underline" onClick={load}>Try again</button></p>}
+      {incomplete && matches?.length
         ? <p className="mb-4 border-l-4 border-gold bg-white p-3 text-sm">Add your field, skills and interests in <Link to="/profile" className="font-semibold underline">My profile</Link> for better matches.</p> : null}
       {Object.values(sent).includes('accepted') && (
         <p role="status" className="mb-4 border-l-4 border-navy bg-white p-3 text-sm">A mentor accepted your request. Open <Link to="/mentorships" className="font-semibold underline">My mentorships</Link> to say hello and plan a session.</p>
       )}
       <div className="space-y-2">
-        {matches.map(({ mentor: m, score, reasons, method }) => (
+        {matches === null && <p role="status" className="text-sm text-muted">Finding your mentor matches…</p>}
+        {(matches || []).map(({ mentor: m, score, reasons, method }) => (
           <Row key={m.id}>
             <div className="flex items-start gap-3">
               <Avatar name={m.name} />
@@ -83,7 +88,9 @@ export default function Mentorship() {
             </div>
           </Row>
         ))}
-        {!matches.length && <p className="text-sm text-muted">No matches yet. Complete your profile to see mentors.</p>}
+        {matches?.length === 0 && !matchErr && (incomplete
+          ? <p className="border-l-4 border-gold bg-white p-3 text-sm">Complete your field, skills and interests to see mentor matches. <Link to="/profile" className="font-semibold underline">Go to My profile</Link></p>
+          : <p className="text-sm text-muted">No mentors are available yet. Check back soon: new alumni mentors join regularly.</p>)}
       </div>
     </>
   )

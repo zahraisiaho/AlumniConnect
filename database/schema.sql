@@ -3,7 +3,7 @@
 -- Re-runnable: drops and recreates everything. Run on an empty or disposable database only.
 
 DROP VIEW  IF EXISTS alumni_directory;
-DROP TABLE IF EXISTS mentorship_reads, mentorship_reviews, mentoring_sessions, messages, profile_embeddings, match_feedback, forum_replies, forum_posts, updates, mentorship_matches, mentorship_requests,
+DROP TABLE IF EXISTS mentorship_reads, mentorship_reviews, mentoring_sessions, messages, profile_embeddings, app_settings, forum_replies, forum_posts, updates, mentorship_matches, mentorship_requests,
                      user_interests, user_skills, auth_identities, users, availability_options, interests, skills,
                      industries, fields_of_study, universities CASCADE;
 
@@ -48,6 +48,14 @@ CREATE UNIQUE INDEX users_email_unique ON users (lower(email));
 CREATE INDEX users_university_idx ON users (university_id);
 CREATE INDEX users_role_idx ON users (role);
 
+-- Admin settings (for example the matching mode). The API also creates this table at start-up.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE user_skills (
   user_id  INTEGER NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
   skill_id INTEGER NOT NULL REFERENCES skills(id) ON DELETE RESTRICT,
@@ -83,18 +91,7 @@ CREATE TABLE mentorship_matches (
 );
 CREATE INDEX matches_student_score_idx ON mentorship_matches (student_id, score DESC);
 
--- ---------- Matching intelligence: tester ratings and cached text embeddings ----------
--- Ratings are collected on the "Improve matching" page and used to train the learned ranking model.
-CREATE TABLE match_feedback (
-  id         SERIAL PRIMARY KEY,
-  student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  mentor_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  helpful    BOOLEAN NOT NULL,                       -- "Would this person be a helpful mentor for you?"
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (student_id, mentor_id),                    -- one rating per student-mentor pair
-  CHECK (student_id <> mentor_id)
-);
+-- ---------- Matching intelligence: cached text embeddings ----------
 -- Cached sentence embeddings of each profile's free-text bio (recomputed when the text or provider changes).
 CREATE TABLE profile_embeddings (
   user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

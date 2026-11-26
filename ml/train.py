@@ -3,10 +3,11 @@
 Run (from the project folder):
     py ml/make_synthetic.py                                  # writes ml/synthetic_pairs.csv (SYNTHETIC DATA)
     py ml/train.py ml/synthetic_pairs.csv --out ml/output    # trains, evaluates, writes the files below
-    py ml/train.py ml/synthetic_pairs.csv --real alumniconnect_feedback.csv --out ml/output   # plus a check on real ratings
+    py ml/train.py ml/synthetic_pairs.csv --real pilot_outcomes.csv --out ml/output   # plus a check on real pilot outcomes
 
 Input  : a pairs CSV with student_id, mentor_id, rule_score, the 7 features and a label column:
-         match_success (synthetic data, ml/make_synthetic.py) or helpful (real ratings from Admin > Export training data).
+         match_success (synthetic data, ml/make_synthetic.py) or helpful (real outcomes, to be collected in a future pilot
+         and saved as a CSV with the same columns).
 Output : weights.json (for backend/model/), metrics.json, results.md and results_chart.png.
 
 Method
@@ -225,7 +226,7 @@ def run_experiment(df, seed=SEED, n_boot=2000):
 
 
 def evaluate_real(model, real_df, thresholds, train_provider, min_students=5, min_pairs=40):
-    """The synthetic-trained model on real tester ratings ('real pilot data (small)'). Skipped cleanly if there are too few."""
+    """The synthetic-trained model on real outcomes from a future pilot ('real pilot data (small)'). Skipped cleanly if there are too few."""
     usable = real_df.groupby('student_id').filter(lambda d: 0 < d['label'].sum() < len(d))
     n_s = usable['student_id'].nunique()
     if n_s < min_students or len(real_df) < min_pairs:
@@ -304,7 +305,7 @@ def export_weights(final, df, C, ev, csv_path=None):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('csv', help='pairs CSV (ml/synthetic_pairs.csv or a feedback export)')
-    ap.add_argument('--real', help='optional real ratings export (Admin > Export training data) for an external check')
+    ap.add_argument('--real', help='optional CSV of real outcomes from a future pilot (same columns); checks the model against it')
     ap.add_argument('--out', default='.', help='output folder')
     ap.add_argument('--boot', type=int, default=2000)
     a = ap.parse_args(argv)

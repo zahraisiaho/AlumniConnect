@@ -6,9 +6,10 @@
 > notebook repeats this banner.
 
 ## Why synthetic data
-The learned matcher needs labelled pairs (did this mentorship work out?). The app does not yet have enough real
-ratings, so the model is trained on a clearly labelled synthetic dataset. Real ratings, once collected on the
-Improve matching page, are used as a separate external check ("real pilot data (small)").
+The learned matcher needs labelled pairs (did this mentorship work out?). The app does not yet have real outcomes,
+so the model is trained on a clearly labelled synthetic dataset. Real outcomes would be collected in a future pilot
+and saved as a CSV with the same columns; `train.py --real` then checks the model against that file as a separate
+external check ("real pilot data (small)").
 
 ## How to make it
 ```

@@ -21,7 +21,7 @@ cells = [
 * **Data:** `ml/synthetic_pairs.csv`, made by `ml/make_synthetic.py` (seeded; `data_source = 'synthetic'`). Its hidden label `match_success` comes from a compatibility function that is deliberately different from the rule weights.
 * **Evaluation:** whole students held out; C chosen by grouped cross-validation on training students; accuracy/F1 thresholds chosen on training students only; precision@1/3/5, accuracy, F1 and AUC with 95% bootstrap intervals over test students.
 
-**How to use.** Runtime > Run all. Upload `synthetic_pairs.csv` when asked. Optionally upload a real ratings export (Admin > Export training data) in section 9. Download `weights.json` and `metrics.json` at the end."""),
+**How to use.** Runtime > Run all. Upload `synthetic_pairs.csv` when asked. Optionally, in section 9, upload a CSV of real outcomes from a future pilot (same columns as `synthetic_pairs.csv`). Download `weights.json` and `metrics.json` at the end."""),
  code("!pip -q install scikit-learn pandas numpy matplotlib 2>/dev/null\nimport warnings; warnings.filterwarnings('ignore')\nCSV_PATH = 'synthetic_pairs.csv'   # used when running outside Colab"),
  md("## 1. The training and evaluation code\nThis is `ml/train.py`, copied in when the notebook is built."),
  code(SRC),
@@ -69,8 +69,8 @@ cmp_models = {'baseline': ('rule_score', ev['thresholds_chosen_on_train']['basel
 cmp_ci = bootstrap(t, cmp_models, n_boot=1000)
 pd.DataFrame({f'{name} (SYNTHETIC)': {m: f"{metrics_for(t, col, thr)[m]:.3f} [{cmp_ci[name][m][0]:.3f}, {cmp_ci[name][m][1]:.3f}]" for m in METRICS}
               for name, (col, thr) in cmp_models.items()})"""),
- md("## 9. Optional external check: real pilot data (small)\nIf students have rated mentors on the Improve matching page, upload the export (Admin > Export training data). The synthetic-trained model and the synthetic-chosen thresholds are applied unchanged. With few ratings this is skipped, and even when it runs the intervals are wide."),
- code("""REAL_PATH = None   # e.g. 'alumniconnect_feedback.csv' when running locally
+ md("## 9. Optional external check: real pilot data (small)\nReal outcomes would be collected in a future pilot and saved as a CSV with the same columns as `synthetic_pairs.csv` (label `helpful` or `match_success`). If you have such a file, upload it here to check the model against it. The synthetic-trained model and the synthetic-chosen thresholds are applied unchanged. With few pairs this is skipped, and even when it runs the intervals are wide."),
+ code("""REAL_PATH = None   # e.g. 'pilot_outcomes.csv' when running locally
 try:
     from google.colab import files
     up = files.upload()   # press Cancel to skip
